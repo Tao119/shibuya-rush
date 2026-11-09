@@ -112,6 +112,12 @@ public static class ProjectSetup
         Transparent("GhostB", "Universal Render Pipeline/Unlit", new Color(0.7f, 0.6f, 1f, 0.34f), false);
         Transparent("GhostC", "Universal Render Pipeline/Unlit", new Color(0.9f, 0.7f, 1f, 0.18f), false);
         Transparent("FxAdd", "Universal Render Pipeline/Particles/Unlit", Color.white, true);
+        Mat("TreeTrunk", new Color(.45f, .32f, .24f)); Mat("TreeLeaf0", new Color(.40f, .74f, .38f), 0.15f); Mat("TreeLeaf1", new Color(.52f, .80f, .36f), 0.15f); Mat("TreeLeaf2", new Color(.30f, .62f, .42f), 0.15f);
+        Mat("Pole", new Color(.62f, .64f, .70f), 0.3f); Mat("LampWarm", new Color(1f, .9f, .6f), 0.2f, new Color(2.4f, 1.8f, .8f));
+        Mat("SigGreen", new Color(.2f, 1f, .5f), 0.2f, new Color(.4f, 3f, 1.1f)); Mat("SigRed", new Color(1f, .25f, .2f), 0.2f, new Color(3f, .5f, .4f));
+        Mat("Bronze", new Color(.72f, .52f, .26f), 0.45f); Mat("Stone", new Color(.74f, .73f, .72f), 0.15f);
+        Color[] neon = { new Color(1f, .25f, .6f), new Color(.2f, .9f, 1f), new Color(1f, .85f, .2f), new Color(.6f, .4f, 1f), new Color(.3f, 1f, .5f), new Color(1f, .5f, .2f), new Color(1f, .3f, .3f), new Color(.95f, .95f, 1f) };
+        for (int i = 0; i < neon.Length; i++) Mat("Neon" + i, neon[i] * 0.6f, 0.2f, neon[i] * 2.0f).SetFloat("_Cull", 0f);
         Mat("Pants", new Color(.2f, .22f, .32f)); Mat("PlayerPants", new Color(.08f, .08f, .1f)); Mat("Skin", new Color(.96f, .78f, .64f));
         Mat("PlayerTint", new Color(1f, .42f, .08f)); Mat("Goal", new Color(1f, .85f, .2f), 0.2f, new Color(2.5f, 1.8f, .3f));
         AssetDatabase.SaveAssets();
@@ -137,6 +143,25 @@ public static class ProjectSetup
         PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Standalone, "jp.tao.shibuyarush");
         PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, ScriptingImplementation.Mono2x);
         Debug.Log("SETUP_OK");
+    }
+
+    /// <summary>iPhone/iPad用のXcodeプロジェクトを出力する(Build/iOS)。署名とApp Storeへの提出はXcodeで行う。</summary>
+    public static void BuildIOS()
+    {
+        Setup();
+        PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, "jp.tao.shibuyarush");
+        PlayerSettings.SetScriptingBackend(NamedBuildTarget.iOS, ScriptingImplementation.IL2CPP);
+        PlayerSettings.SetArchitecture(NamedBuildTarget.iOS, 1);                      // ARM64
+        PlayerSettings.iOS.targetOSVersionString = "15.0"; PlayerSettings.iOS.targetDevice = iOSTargetDevice.iPhoneAndiPad;
+        PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
+        PlayerSettings.allowedAutorotateToPortrait = true; PlayerSettings.allowedAutorotateToLandscapeLeft = true; PlayerSettings.allowedAutorotateToLandscapeRight = true; PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
+        PlayerSettings.iOS.hideHomeButton = true;
+        bool sim = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-simulator") >= 0;   // iOSシミュレーター用
+        PlayerSettings.iOS.sdkVersion = sim ? iOSSdkVersion.SimulatorSDK : iOSSdkVersion.DeviceSDK;
+        var opts = new BuildPlayerOptions { scenes = new[] { "Assets/Scenes/Main.unity" }, locationPathName = sim ? "../Build/iOSSim" : "../Build/iOS", target = BuildTarget.iOS, options = BuildOptions.None };
+        var rep = BuildPipeline.BuildPlayer(opts);
+        Debug.Log("BUILD_RESULT_IOS " + rep.summary.result + " size=" + rep.summary.totalSize);
+        if (rep.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded) EditorApplication.Exit(1);
     }
 
     public static void BuildMac()

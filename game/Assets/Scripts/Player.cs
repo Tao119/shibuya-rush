@@ -84,11 +84,14 @@ namespace ShibuyaRush
 
         void Move(Vector2 d)
         {
+            // すでに建物の中(駅構内など、通路から入った場合)にいるなら、建物の中どうしの移動は許す。外から壁を抜けて入ることはできない
+            bool indoors = city.InsideBuilding(pos.x, pos.y);
+            bool Free(float x, float z) => !city.Blocked(x, z) || (indoors && city.InsideBuilding(x, z));
             var n = pos + d;
-            if (!city.Blocked(n.x, n.y)) { pos = n; return; }
-            if (!city.Blocked(pos.x + d.x, pos.y)) pos.x += d.x;
-            else if (!city.Blocked(pos.x, pos.y + d.y)) pos.y += d.y;
-            else if (city.Blocked(pos.x, pos.y)) pos = n;   // すでに壁の余白に入ってしまっている場合は、抜け出すために動けるようにする
+            if (Free(n.x, n.y)) { pos = n; return; }
+            if (Free(pos.x + d.x, pos.y)) pos.x += d.x;
+            else if (Free(pos.x, pos.y + d.y)) pos.y += d.y;
+            else if (city.Blocked(pos.x, pos.y)) pos = n;   // 壁の余白に入ってしまっている場合は、抜け出すために動けるようにする
             else vel = Vector2.zero;
         }
 

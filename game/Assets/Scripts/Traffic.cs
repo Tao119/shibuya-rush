@@ -41,7 +41,7 @@ namespace ShibuyaRush
             }
             c = new Car[count];
             var cum = new List<float>(); var ids = new List<int>(); float tot = 0;
-            for (int i = 0; i < g.edges.Count; i++) { if (!g.inMain[g.edges[i].a]) continue; tot += g.edges[i].len * (g.edges[i].width >= 9f ? 2f : 1f); cum.Add(tot); ids.Add(i); }
+            for (int i = 0; i < g.edges.Count; i++) { if (!g.inMain[g.edges[i].a] || g.edges[i].width <= 0f) continue; tot += g.edges[i].len * (g.edges[i].width >= 9f ? 2f : 1f); cum.Add(tot); ids.Add(i); }
             for (int i = 0; i < count && ids.Count > 0; i++)
             {
                 float r = (float)rng.NextDouble() * tot; int lo = 0, hi = cum.Count - 1;

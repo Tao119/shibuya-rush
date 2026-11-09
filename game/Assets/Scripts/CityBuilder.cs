@@ -12,14 +12,14 @@ namespace ShibuyaRush
         readonly Dictionary<long, List<int>> grid = new Dictionary<long, List<int>>();
         readonly List<Vector2[]> footprints = new List<Vector2[]>();
         readonly List<Vector4> boxes = new List<Vector4>(); // minx,minz,maxx,maxz
-        public int BuildingCount => footprints.Count;
+        public int BuildingCount => footprints.Count; public GameObject Root { get; private set; }
         public System.Func<float, float, bool> Exempt; // 建物の下をくぐる道など、通れる場所
 
         static long Key(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
 
         public GameObject Build(CityData city, Material ground, Material road, Material walkway, Material[] palette, Material marking = null)
         {
-            var root = new GameObject("City");
+            var root = new GameObject("City"); Root = root;
             MakeGround(root.transform, ground);
             MakeRoads(root.transform, city, road, walkway);
             MakeBuildings(root.transform, city, palette);
@@ -253,6 +253,12 @@ namespace ShibuyaRush
                     if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<int>();
                     l.Add(id);
                 }
+        }
+
+        /// <summary>四角い障害物(ハチ公像など)を、建物と同じく通れない場所として登録する。</summary>
+        public void AddObstacle(Vector2 c, float half)
+        {
+            Register(new[] { c + new Vector2(-half, -half), c + new Vector2(half, -half), c + new Vector2(half, half), c + new Vector2(-half, half) });
         }
 
         /// <summary>検証用: 壁の線分をランダムに選び、中点と外向きの法線を返す。</summary>

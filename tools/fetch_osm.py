@@ -11,6 +11,8 @@ ENDPOINTS = ["https://z.overpass-api.de/api/interpreter", "https://lz4.overpass-
 QUERIES = {
     "roads": f'[out:json][timeout:120];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|pedestrian|footway|steps|path|cycleway|primary_link|secondary_link|tertiary_link|trunk_link)$"]({BBOX});out tags geom;',
     "buildings": f'[out:json][timeout:180];(way["building"]({BBOX});relation["building"]({BBOX}););out tags geom;',
+    "trees": f'[out:json][timeout:90];node["natural"="tree"]({BBOX});out;',
+    "lamps": f'[out:json][timeout:90];node["highway"="street_lamp"]({BBOX});out;',
     "poi": f'[out:json][timeout:60];nwr["name"~"ドン・キホーテ|ドンキ|TSUTAYA|ツタヤ|ハチ公|SHIBUYA109|ヒカリエ|スクランブルスクエア|マークシティ|センター街"]({BBOX});out tags center;',
 }
 

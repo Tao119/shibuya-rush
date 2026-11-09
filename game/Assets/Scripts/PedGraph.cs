@@ -86,6 +86,25 @@ namespace ShibuyaRush
             BuildEdgeGrid();
         }
 
+        /// <summary>
+        /// 建物の中を通ってしまう道の辺を取り除く(車道が建物の下を通るデータなど)。人も車も建物を通り抜けて歩かなくなる。
+        /// 高架の辺は対象外。onlyCar=trueなら歩行者グラフの車道の辺だけ(歩行者通路・駅構内の通路は残す)。
+        /// </summary>
+        public int Prune(System.Func<float, float, bool> insideBuilding, bool onlyCar)
+        {
+            int removed = 0;
+            for (int id = 0; id < edges.Count; id++)
+            {
+                var e = edges[id]; if (e.width <= 0f || e.lA > 0.05f || e.lB > 0.05f || (onlyCar && !e.car)) continue;
+                var a = nodes[e.a]; bool hit = false;
+                for (float t = 2f; t < e.len - 2f && !hit; t += 2f) { var p = a + e.dir * t; hit = insideBuilding(p.x, p.y); }
+                if (!hit) continue;
+                adj[e.a].Remove(id); adj[e.b].Remove(id); e.width = 0f; edges[id] = e; removed++;
+            }
+            if (removed > 0) { FindMainComponent(); edgeGrid.Clear(); BuildEdgeGrid(); }
+            return removed;
+        }
+
         /// <summary>ほぼ接している別ノードどうしを短い辺でつなぐ(OSMの座標ずれで道が切れるのを防ぐ)。</summary>
         void BridgeNearNodes(float r)
         {
@@ -145,7 +164,7 @@ namespace ShibuyaRush
         }
 
         /// <summary>
-        /// 建物の中を通れる場所か。駅のデッキや階段(高架)の下をくぐる所と、建物の中を抜ける細い歩行者通路(中心線から1m以内)だけ。
+        /// 建物の中を通れる場所か。駅のデッキや階段(高架)の下をくぐる所と、建物の中を抜ける細い歩行者通路(中心線から1.6m以内)だけ。
         /// 車道や路地の幅に合わせて広く許すと、細い道に面した建物の壁をすり抜けられてしまう。
         /// </summary>
         public bool OnWalkway(float x, float z)
@@ -158,7 +177,7 @@ namespace ShibuyaRush
                 float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f));
                 float d = (p - (a + ab * t)).magnitude;
                 bool deck = e.lA > 0.05f || e.lB > 0.05f;
-                if (deck ? d < Mathf.Max(e.width * 0.5f, 1.5f) + 0.5f : (!e.car && d < 1.0f)) return true;
+                if (deck ? d < Mathf.Max(e.width * 0.5f, 1.5f) + 0.5f : (!e.car && d < 1.6f)) return true;
             }
             return false;
         }
@@ -181,14 +200,32 @@ namespace ShibuyaRush
             return best;
         }
 
+        /// <summary>点pから半径r(最大20m)以内に歩行者グラフの道があるか。</summary>
+        public bool NearEdge(Vector2 p, float r)
+        {
+            int cx0 = Mathf.FloorToInt((p.x - r) / GridCell), cx1 = Mathf.FloorToInt((p.x + r) / GridCell), cz0 = Mathf.FloorToInt((p.y - r) / GridCell), cz1 = Mathf.FloorToInt((p.y + r) / GridCell);
+            for (int cx = cx0; cx <= cx1; cx++) for (int cz = cz0; cz <= cz1; cz++)
+            {
+                if (!edgeGrid.TryGetValue(GK(cx, cz), out var l)) continue;
+                foreach (int id in l)
+                {
+                    var e = edges[id]; var a = nodes[e.a]; var ab = nodes[e.b] - a;
+                    float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f));
+                    if ((p - (a + ab * t)).magnitude < r) return true;
+                }
+            }
+            return false;
+        }
+
         public int Other(int edge, int node) => edges[edge].a == node ? edges[edge].b : edges[edge].a;
 
-        public int NearestNode(Vector2 p)
+        /// <summary>最寄りのノード。maxLiftを指定すると、その高さ以下(地上)のノードだけを対象にする。</summary>
+        public int NearestNode(Vector2 p, float maxLift = 1000f)
         {
             int best = 0; float bd = float.MaxValue;
             for (int i = 0; i < nodes.Count; i++)
             {
-                if (!inMain[i]) continue;
+                if (!inMain[i] || nodeLift[i] > maxLift) continue;
                 float d = (nodes[i] - p).sqrMagnitude; if (d < bd) { bd = d; best = i; }
             }
             return best;
@@ -235,7 +272,7 @@ namespace ShibuyaRush
         /// <summary>A*。ノード列を返す(経路なしなら空)。</summary>
         public List<Vector2> Path(Vector2 from, Vector2 to)
         {
-            int s = NearestNode(from), g = NearestNode(to);
+            int s = NearestNode(from), g = NearestNode(to, 0.5f);
             var dist = new Dictionary<int, float> { [s] = 0 }; var prev = new Dictionary<int, int>();
             var pq = new PriorityQueue<int, float>(); pq.Enqueue(s, 0); var closed = new HashSet<int>();
             while (pq.TryDequeue(out int cur, out _))

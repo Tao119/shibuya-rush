@@ -9,18 +9,18 @@ namespace ShibuyaRush
     public enum GameState { Menu, Countdown, Playing, Finished }
 
     /// <summary>ゲーム全体の進行・カメラ・HUD・テスト用Bot。シーンにはこのコンポーネントを持つ空のオブジェクトが1つあれば動く。</summary>
-    public class GameManager : MonoBehaviour
+    public partial class GameManager : MonoBehaviour
     {
         const float GoalRadius = 6f;
-        CityData data; CityBuilder city; PedGraph graph, carGraph; Crowd crowd; Traffic traffic; Player player; float hitCd, hitFlash; int hits; int carCount = 800;
+        CityData data; CityBuilder city; PedGraph graph, carGraph; Crowd crowd; Traffic traffic; Props props; Player player; float hitCd, hitFlash; int hits; int carCount = 800;
         HumanoidRenderer crowdHr, playerHr; Camera cam, miniCam; RenderTexture miniRt;
         GameState state = GameState.Menu; float stateT, raceT;
         int poiIndex; Vector2 goal; float goalLift; string goalName = ""; GameObject beam;
         float camYaw; int crowdCount = 50000; float hb;
         SkillFx fx; GameObject arrow3d; Texture2D arrowTex, vigTex; Material arrowMat;
-        GUIStyle big, mid, small, box;
+        readonly InputHub input = new InputHub(); bool touchMode, crowdArg, carsArg;
         // Bot / 計測
-        bool autoplay, noSkills, selfTest, fxTest, menuShot, finShot2; float menuQuitAt; bool f1, f2, f3; float shotAt; string shotTag; Vector2 startPos; float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT;
+        bool autoplay, noSkills, selfTest, fxTest, menuShot, finShot2, fakeJoy; float menuQuitAt; bool f1, f2, f3; float shotAt; string shotTag; Vector2 startPos = new Vector2(3.6f, -3.2f); float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT; bool stuckLogged;
         readonly List<float> frameMs = new List<float>(); float nextShot; int shotNo; string resultNote = "";
 
         Material M(string n) => Resources.Load<Material>("Mats/" + n);
@@ -35,13 +35,22 @@ namespace ShibuyaRush
                 if (args[i] == "-selftest") selfTest = true;
                 if (args[i] == "-fxtest") fxTest = true;
                 if (args[i] == "-menushot") menuShot = true;
-                if (args[i] == "-cars" && i + 1 < args.Length) carCount = int.Parse(args[i + 1]);
+                if (args[i] == "-cars" && i + 1 < args.Length) { carCount = int.Parse(args[i + 1]); carsArg = true; }
+                if (args[i] == "-mobile") touchMode = true;
+                if (args[i] == "-fakejoy") fakeJoy = true;
                 if (args[i] == "-camback" && i + 1 < args.Length) camBack = float.Parse(args[i + 1]);
                 if (args[i] == "-camup" && i + 1 < args.Length) camUp = float.Parse(args[i + 1]);
                 if (args[i] == "-start" && i + 2 < args.Length) startPos = new Vector2(float.Parse(args[i + 1]), float.Parse(args[i + 2]));
                 if (args[i] == "-shotdir" && i + 1 < args.Length) shotDir = args[i + 1];
-                if (args[i] == "-crowd" && i + 1 < args.Length) crowdCount = int.Parse(args[i + 1]);
+                if (args[i] == "-crowd" && i + 1 < args.Length) { crowdCount = int.Parse(args[i + 1]); crowdArg = true; }
                 if (args[i] == "-quitafter" && i + 1 < args.Length) quitAfter = float.Parse(args[i + 1]);
+            }
+            if (Application.isMobilePlatform) touchMode = true;
+            if (touchMode)
+            {   // スマホ向けの軽量設定(人と車を減らし、描画距離と影を絞る)
+                if (!crowdArg) crowdCount = 6000; if (!carsArg) carCount = 150;
+                Screen.orientation = ScreenOrientation.AutoRotation; Screen.autorotateToPortrait = Screen.autorotateToLandscapeLeft = Screen.autorotateToLandscapeRight = true; Screen.autorotateToPortraitUpsideDown = false;
+                Screen.sleepTimeout = SleepTimeout.NeverSleep;
             }
             QualitySettings.vSyncCount = autoplay ? 0 : 1; Application.targetFrameRate = autoplay ? -1 : 60;
             cam = Camera.main;
@@ -57,6 +66,7 @@ namespace ShibuyaRush
             city.Build(data, M("Ground"), M("Road"), M("Walkway"), pal, M("Marking"));
             graph = new PedGraph(data);
             city.Exempt = graph.OnWalkway;
+            int pruned = graph.Prune(city.InsideBuilding, true);
             var lm = new List<Vector2>(); foreach (var q in data.pois) lm.Add(new Vector2(q.x, q.z));
             lm.Add(Vector2.zero);
             graph.BuildHubs(300, 7, lm);
@@ -64,7 +74,9 @@ namespace ShibuyaRush
             crowdHr = new HumanoidRenderer(tints, M("Pants"), M("Skin"));
             playerHr = new HumanoidRenderer(new[] { M("PlayerTint") }, M("PlayerPants"), M("Skin"));
             crowd = new Crowd(graph, crowdHr, crowdCount, 12345);
-            carGraph = new PedGraph(data, true); carGraph.BuildHubs(Mathf.Min(150, Mathf.Max(2, carGraph.MainCount / 4)), 11, new List<Vector2>());
+            if (touchMode) ApplyMobileProfile();
+            props = new Props(data, city, graph, city.Root.transform, touchMode); if (touchMode) props.DrawDist = 80f;
+            carGraph = new PedGraph(data, true); int prunedCar = carGraph.Prune(city.InsideBuilding, false); Debug.Log($"[Graph] pruned walk={pruned} car={prunedCar}"); carGraph.BuildHubs(Mathf.Min(150, Mathf.Max(2, carGraph.MainCount / 4)), 11, new List<Vector2>());
             var carMats = new Material[6]; for (int i = 0; i < carMats.Length; i++) carMats[i] = M("Car" + i);
             traffic = new Traffic(carGraph, graph, crowd, carCount, carMats, M("CarCabin"));
             player = new Player(city, crowd, graph, Vector2.zero) { yaw = 0 };
@@ -91,7 +103,7 @@ namespace ShibuyaRush
                 Debug.Log($"[SelfTest] frontHit={a} push={p1} (期待 True, y>0) sideFar={b} (期待 False) sideNear={c2} push={p3} (期待 True, x>0) rev={d2} push={p4} (期待 True)");
             }
             if (selfTest) RunCollisionTests();
-            Debug.Log($"[Shibuya] roads={data.roads.Length} buildings={city.BuildingCount} nodes={graph.nodes.Count} main={graph.MainCount} edges={graph.edges.Count} hubs={graph.hubNodes.Length} crowd={crowd.Count} post={fx.PostOk}");
+            Debug.Log($"[Shibuya] roads={data.roads.Length} buildings={city.BuildingCount} nodes={graph.nodes.Count} main={graph.MainCount} edges={graph.edges.Count} hubs={graph.hubNodes.Length} crowd={crowd.Count} post={fx.PostOk} trees={props.TreeCount} lamps={props.LampCount} signals={props.SignalCount} neon={props.NeonCount}");
             if (autoplay) StartRace(poiIndex); else if (shotDir != null) { Directory.CreateDirectory(shotDir); }
         }
 
@@ -126,23 +138,29 @@ namespace ShibuyaRush
         void StartRace(int idx)
         {
             poiIndex = idx; var poi = data.pois[idx]; goalName = poi.name;
-            int gn = graph.NearestNode(new Vector2(poi.x, poi.z)); goal = graph.nodes[gn]; goalLift = graph.nodeLift[gn];
+            /* ゴールは地上のノード(高架の上は階段を探さないと着けないため) */ int gn = graph.NearestNode(new Vector2(poi.x, poi.z), 0.5f); goal = graph.nodes[gn]; goalLift = graph.nodeLift[gn];
             player.pos = startPos; player.yaw = 0; raceT = 0; player.lift = graph.nodeLift[graph.NearestNode(startPos)]; state = GameState.Countdown; stateT = 0;
             beam.SetActive(true); beam.transform.position = new Vector3(goal.x, Heightfield.Current.Height(goal.x, goal.y) + goalLift + 40, goal.y); beam.transform.localScale = new Vector3(2.4f, 40f, 2.4f);
             goalDist = (goal - startPos).magnitude; par3 = 0.19f * goalDist + 5f; par2 = 0.3f * goalDist + 9f;
             combo = 0; comboT = 0; comboBonus = 0; lastHits = player.plowed + player.shoved; lastCount = -1; resultNote = ""; starsEarned = 0; pops.Clear();
             if (autoplay) { botPath = graph.Path(player.pos, goal); botIdx = 0; Debug.Log($"[Bot] route nodes={botPath.Count} dest={goalName}"); if (shotDir != null) Directory.CreateDirectory(shotDir); }
-            Cursor.lockState = autoplay ? CursorLockMode.None : CursorLockMode.Locked;
+            Cursor.lockState = CursorLockMode.None;
         }
 
         Vector2 ReadWish(out bool dash, out bool slip, out bool shove)
         {
-            dash = Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift);
-            slip = Input.GetKeyDown(KeyCode.Space); shove = Input.GetKeyDown(KeyCode.E);
-            var inp = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
-            if (inp.sqrMagnitude < 0.01f) return Vector2.zero;
+            dash = input.dash; slip = input.slip; shove = input.shove;
+            var inp = input.stick; if (inp.sqrMagnitude < 0.0001f) return Vector2.zero;
             float y = camYaw * Mathf.Deg2Rad; var f = new Vector2(Mathf.Sin(y), Mathf.Cos(y)); var r = new Vector2(f.y, -f.x);
             return f * inp.y + r * inp.x;
+        }
+
+        /// <summary>スマホ向け: 人と車の描画距離、影、解像度を絞る。</summary>
+        void ApplyMobileProfile()
+        {
+            crowd.NearDist = 28f; crowd.FarDist = 140f;
+            if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline is UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset urp)
+            { urp.shadowDistance = 55f; urp.renderScale = 0.85f; urp.msaaSampleCount = 2; }
         }
 
         Vector2 BotWish(out bool dash, out bool slip, out bool shove)
@@ -151,8 +169,17 @@ namespace ShibuyaRush
             dash = slip = shove = false;
             if (botPath == null || botPath.Count == 0) return Vector2.zero;
             while (botIdx < botPath.Count - 1 && (botPath[botIdx] - player.pos).sqrMagnitude < 2.5f * 2.5f) botIdx++;
-            var to = botPath[botIdx] - player.pos;
+            // 経路の線分に沿って、現在位置の少し先(4m)を狙う。押し出されて線からそれても、線へ戻れる
+            var sa = botPath[Mathf.Max(botIdx - 1, 0)]; var sb = botPath[botIdx]; var sd = sb - sa; float sl = sd.magnitude;
+            Vector2 aim = sb;
+            if (sl > 1e-3f) { float tp = Mathf.Clamp(Vector2.Dot(player.pos - sa, sd / sl), 0f, sl); aim = sa + sd / sl * Mathf.Min(sl, tp + 4f); }
+            var to = aim - player.pos;
             if (player.speedNow < 1.2f) stuckT += udt; else stuckT = 0;
+            if (stuckT > 6f && !stuckLogged)
+            {
+                stuckLogged = true; var wp = botPath[botIdx]; var np = player.pos + (wp - player.pos).normalized * 0.5f;
+                Debug.Log($"[Stuck] pos={player.pos} lift={player.lift} wp={wp} blockedHere={city.Blocked(player.pos.x, player.pos.y)} insideBld={city.InsideBuilding(player.pos.x, player.pos.y)} exemptHere={city.Exempt(player.pos.x, player.pos.y)} blockedAhead={city.Blocked(np.x, np.y)} aheadInside={city.InsideBuilding(np.x, np.y)} aheadExempt={city.Exempt(np.x, np.y)} carHit={traffic.Collide(player.pos, player.lift, out var cp, out _)} idx={botIdx}/{botPath.Count}");
+            }
             if ((player.slowFactor < 0.6f || player.stagger > 0f) && player.dashCd <= 0) dash = true;
             if (stuckT > 0.6f && player.slipCd <= 0) { slip = true; stuckT = 0; }
             if (stuckT > 0.3f && player.shoveCd <= 0) shove = true;
@@ -170,9 +197,15 @@ namespace ShibuyaRush
         void Update()
         {
             float dt = Mathf.Min(Time.deltaTime, 0.05f), rdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            ComputeLayout(); input.uiScale = L.S; input.playing = state == GameState.Playing && !autoplay;
+            input.btnDash = new InputHub.Circle { c = L.sDash, r = L.sR }; input.btnSlip = new InputHub.Circle { c = L.sSlip, r = L.sR }; input.btnShove = new InputHub.Circle { c = L.sShove, r = L.sR };
+            input.noDrive.Clear(); input.noDrive.Add(L.timer); input.noDrive.Add(L.chip); input.noDrive.Add(L.minimap);
+            input.Update(rdt);
+            if (input.usingTouch && !touchMode) touchMode = true;
+            if (fakeJoy) { input.stickActive = true; input.stickOrigin = new Vector2(L.x0 + 130f, L.y1 - 110f); input.stickPos = input.stickOrigin + new Vector2(38f, -30f); }
             if (state == GameState.Playing || state == GameState.Countdown) frameMs.Add(Time.unscaledDeltaTime * 1000f);
             stateT += dt;
-            hb += Time.unscaledDeltaTime; if (autoplay && hb > 5f) { hb = 0; Debug.Log($"[HB] t={Time.timeSinceLevelLoad:F0} wait={crowd.Waiting} state={state} race={raceT:F1} pos={player.pos} fps={1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f):F0}"); }
+            hb += Time.unscaledDeltaTime; if (autoplay && hb > 5f) { hb = 0; Debug.Log($"[HB] t={Time.timeSinceLevelLoad:F0} wait={crowd.Waiting} state={state} race={raceT:F1} pos={player.pos} lift={player.lift:F1} idx={botIdx}/{(botPath != null ? botPath.Count : 0)} spd={player.speedNow:F1} stag={player.stagger:F1} fps={1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f):F0}"); }
             bool dash, slip, shove; Vector2 wish = Vector2.zero;
             if (state == GameState.Menu)
             {
@@ -212,9 +245,15 @@ namespace ShibuyaRush
             }
             if (state == GameState.Menu || state == GameState.Countdown || state == GameState.Finished) { dash = slip = shove = false; wish = Vector2.zero; }
 
-            if (!autoplay && Cursor.lockState == CursorLockMode.Locked && state != GameState.Finished) camYaw += Input.GetAxis("Mouse X") * 3f;
-            if (!autoplay) { camYaw += (Input.GetKey(KeyCode.RightArrow) ? 1 : 0) * 120f * dt - (Input.GetKey(KeyCode.LeftArrow) ? 1 : 0) * 120f * dt; }
-            if (Input.GetKeyDown(KeyCode.Escape)) Cursor.lockState = CursorLockMode.None;
+            if (!autoplay)
+            {   // 視点: 手動で回す(右ドラッグ・←→・右側スワイプ)。それ以外は進む向きへ自動で追従する
+                camYaw += input.camDelta;
+                if (state == GameState.Playing && input.manualCamT <= 0f && input.stick.sqrMagnitude > 0.09f)
+                {
+                    float ang = Vector2.Angle(Vector2.up, input.stick); float k = ang < 60f ? 2.2f : ang < 110f ? 0.7f : 0f;
+                    if (k > 0f) camYaw = Mathf.LerpAngle(camYaw, player.yaw, 1f - Mathf.Exp(-k * rdt));
+                }
+            }
 
             // 人混みはメニューでも動かす
             crowd.Step(dt, player.pos, !player.Slipping, player.lift);
@@ -255,7 +294,7 @@ namespace ShibuyaRush
             if (autoplay && state == GameState.Playing) camYaw = Mathf.LerpAngle(camYaw, player.yaw, 2f * dt);
             UpdateCamera(rdt);
             UpdateArrow(); UpdateRings();
-            crowd.Render(cam.transform.position, cam.transform.forward); traffic.Render(cam.transform.position);
+            crowd.Render(cam.transform.position, cam.transform.forward); traffic.Render(cam.transform.position); props.Render(cam.transform.position, crowd.Clock);
             float lean = Mathf.Clamp(player.speedNow * 1.6f, 0, 18f);
             playerHr.Add(new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y), player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.15f, lean, Mathf.Clamp(1f + sq + (player.dashT > 0 ? 0.1f : 0f), 0.6f, 1.4f));
             maxLift = Mathf.Max(maxLift, player.lift);
@@ -297,335 +336,12 @@ namespace ShibuyaRush
         {
             var p = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
             float y = camYaw * Mathf.Deg2Rad; var back = new Vector3(-Mathf.Sin(y), 0, -Mathf.Cos(y));
-            var want = p + back * camBack + Vector3.up * camUp;
+            float narrow = Screen.width < Screen.height ? 1.45f : 1f;   // 縦画面は横幅が狭いので、引いて高くする
+            var want = p + back * camBack * narrow + Vector3.up * camUp * (narrow > 1f ? 1.35f : 1f);
             cam.transform.position = Vector3.Lerp(cam.transform.position, want, 1f - Mathf.Exp(-14f * dt)) + (fx != null ? fx.ShakeOffset : Vector3.zero);
-            cam.fieldOfView = 62f + Mathf.Min(8f, player.speedNow * 0.6f) + (fx != null ? fx.FovAdd : 0f);
+            cam.fieldOfView = (Screen.width < Screen.height ? 76f : 62f) + Mathf.Min(8f, player.speedNow * 0.6f) + (fx != null ? fx.FovAdd : 0f);
             cam.transform.rotation = Quaternion.LookRotation((p + Vector3.up * 1.3f + new Vector3(Mathf.Sin(y), 0, Mathf.Cos(y)) * 2f) - cam.transform.position) * Quaternion.AngleAxis(roll, Vector3.forward);
             miniCam.transform.position = new Vector3(player.pos.x, 300, player.pos.y);
-        }
-
-        // ---------------- HUD(ハイパーカジュアル風: 丸い面、太い縁取り文字、鮮やかな色) ----------------
-        GUIStyle round, huge; Texture2D circleTex, gradTex; Material ringMat;
-        class FloatText { public string s; public Vector3 w; public Color c; public float age, life, size; }
-        readonly List<FloatText> pops = new List<FloatText>();
-        float combo, comboT, comboPop; int lastHits, comboBonus, lastCount = -1; float par3, par2, goalDist;
-        int starsEarned; float roll, prevYaw, sq, sqV; GameObject playerRing, goalRing;
-        static readonly Color[] Candy = { new Color(1f, .42f, .5f), new Color(1f, .68f, .25f), new Color(.38f, .8f, .5f), new Color(.35f, .65f, 1f), new Color(.7f, .5f, 1f), new Color(1f, .5f, .78f) };
-
-        void InitStyles()
-        {
-            if (big != null) return;
-            var font = Resources.Load<Font>("Fonts/NotoSansJP");
-            GUIStyle S(int sz, FontStyle fs, TextAnchor a) { var st = new GUIStyle(GUI.skin.label) { font = font, fontSize = sz, fontStyle = fs, alignment = a, richText = true, wordWrap = false }; st.normal.textColor = Color.white; return st; }
-            big = S(54, FontStyle.Bold, TextAnchor.MiddleCenter); mid = S(26, FontStyle.Bold, TextAnchor.MiddleLeft); small = S(18, FontStyle.Bold, TextAnchor.MiddleLeft);
-            huge = S(88, FontStyle.Bold, TextAnchor.MiddleCenter);
-            box = new GUIStyle(GUI.skin.box); var t = new Texture2D(1, 1); t.SetPixel(0, 0, new Color(0, 0, 0, 0.55f)); t.Apply(); box.normal.background = t;
-            // 角丸の面(9分割)
-            const int N = 64, R = 26; var rt = new Texture2D(N, N, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
-            for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
-            {
-                float cx = Mathf.Clamp(x + .5f, R, N - R), cy = Mathf.Clamp(y + .5f, R, N - R);
-                float d = Mathf.Sqrt((x + .5f - cx) * (x + .5f - cx) + (y + .5f - cy) * (y + .5f - cy));
-                rt.SetPixel(x, y, new Color(1, 1, 1, Mathf.Clamp01(R - d + 0.5f)));
-            }
-            rt.Apply(); round = new GUIStyle { border = new RectOffset(R, R, R, R) }; round.normal.background = rt;
-            circleTex = SkillFx.Radial(128, 0f, 0.5f, false);
-            var cs = new Texture2D(128, 128, TextureFormat.RGBA32, false);
-            for (int y = 0; y < 128; y++) for (int x = 0; x < 128; x++) { float r = Mathf.Sqrt(((x + .5f) / 128 - .5f) * ((x + .5f) / 128 - .5f) + ((y + .5f) / 128 - .5f) * ((y + .5f) / 128 - .5f)); cs.SetPixel(x, y, new Color(1, 1, 1, Mathf.Clamp01((0.5f - r) * 128f * 0.5f))); }
-            cs.Apply(); circleTex = cs;
-            gradTex = new Texture2D(1, 64, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
-            for (int y = 0; y < 64; y++) gradTex.SetPixel(0, y, Color.Lerp(new Color(.42f, .5f, 1f, .93f), new Color(1f, .62f, .45f, .93f), y / 63f));
-            gradTex.Apply();
-        }
-
-        /// <summary>縁取りつき文字(太い黒縁で読みやすく)。</summary>
-        void Label(Rect r, string s, GUIStyle st, Color c)
-        {
-            var sh = new Color(0.1f, 0.08f, 0.2f, 0.9f); st.normal.textColor = sh;
-            float k = Mathf.Clamp(st.fontSize / 26f, 1f, 3.2f);   // 大きい文字ほど縁取りを太く
-            foreach (var o in new[] { new Vector2(-2, 0), new Vector2(2, 0), new Vector2(0, -2), new Vector2(0, 2), new Vector2(0, 4), new Vector2(-1.5f, 1.5f), new Vector2(1.5f, 1.5f), new Vector2(-1.5f, -1.5f), new Vector2(1.5f, -1.5f) })
-                GUI.Label(new Rect(r.x + o.x * k, r.y + o.y * k, r.width, r.height), s, st);
-            st.normal.textColor = c; GUI.Label(r, s, st);
-        }
-
-        /// <summary>角丸の面。下に濃い影を重ねて立体的なボタン風にする。</summary>
-        void Panel(Rect r, Color c, float depth = 5f)
-        {
-            var old = GUI.color; GUI.color = new Color(c.r * 0.45f, c.g * 0.45f, c.b * 0.55f, c.a); GUI.Box(new Rect(r.x, r.y + depth, r.width, r.height), GUIContent.none, round);
-            GUI.color = c; GUI.Box(r, GUIContent.none, round); GUI.color = old;
-        }
-
-        void Disc(Rect r, Color c) { var old = GUI.color; GUI.color = c; GUI.DrawTexture(r, circleTex); GUI.color = old; }
-
-        void Pop(string text, Vector3 world, Color c, float size = 1f) { pops.Add(new FloatText { s = text, w = world, c = c, life = 1.0f, size = size }); if (pops.Count > 24) pops.RemoveAt(0); }
-
-        void OnGUI()
-        {
-            if (data == null) return; InitStyles();
-            float sc = Screen.height / 720f; GUI.matrix = Matrix4x4.Scale(new Vector3(sc, sc, 1)); float W = Screen.width / sc, H = Screen.height / sc;
-            if (state == GameState.Menu) { DrawMenu(W, H); return; }
-            DrawOverlays(W, H);
-            DrawTopLeft(W, H);
-            DrawGoalArrow(W, H, (player.pos - goal).magnitude);
-            DrawMinimap(W, H);
-            DrawCombo(W, H);
-            DrawSkills(W, H);
-            DrawPops(W, H, sc);
-            if (hitFlash > 0) Label(new Rect(0, H / 2 + 50, W, 60), "車に接触!  +3秒", big, new Color(1, 0.35f, 0.3f));
-            DrawBanner(W, H);
-            if (state == GameState.Countdown) DrawCountdown(W, H);
-            if (state == GameState.Finished) DrawFinish(W, H);
-        }
-
-        void DrawMenu(float W, float H)
-        {
-            GUI.DrawTexture(new Rect(0, 0, W, H), gradTex, ScaleMode.StretchToFill, true);
-            float t = Time.unscaledTime; string title = "SHIBUYA RUSH";
-            var st = new GUIStyle(huge) { fontSize = 78 }; float total = 0f; var wd = new float[title.Length];
-            for (int i = 0; i < title.Length; i++) { wd[i] = title[i] == ' ' ? 30f : st.CalcSize(new GUIContent(title[i].ToString())).x + 4f; total += wd[i]; }
-            float xc = W / 2 - total / 2;
-            for (int i = 0; i < title.Length; i++)
-            {
-                if (title[i] != ' ') { float dy = Mathf.Sin(t * 3f + i * 0.55f) * 7f; Label(new Rect(xc, 28 + dy, wd[i], 100), title[i].ToString(), st, Color.Lerp(Color.white, Candy[i % Candy.Length], 0.55f)); }
-                xc += wd[i];
-            }
-            Label(new Rect(0, 128, W, 36), "ハチ公前スタート。大混雑の渋谷を、最速で目的地へ!", new GUIStyle(small) { alignment = TextAnchor.MiddleCenter, fontSize = 20 }, Color.white);
-            for (int i = 0; i < Mathf.Min(data.pois.Length, 6); i++)
-            {
-                var r = new Rect(W / 2 - 310, 180 + i * 76, 620, 66);
-                bool hover = r.Contains(Event.current.mousePosition);
-                float k = hover ? 1.03f : 1f; var rr = new Rect(r.center.x - r.width * k / 2, r.center.y - r.height * k / 2, r.width * k, r.height * k);
-                var col = Candy[i % Candy.Length]; Panel(rr, hover ? Color.Lerp(col, Color.white, 0.25f) : col, 6f);
-                Disc(new Rect(rr.x + 12, rr.y + 9, 48, 48), new Color(1, 1, 1, 0.95f));
-                Label(new Rect(rr.x + 12, rr.y + 9, 48, 48), (i + 1).ToString(), new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter }, col);
-                string nm = data.pois[i].name; var d = new Vector2(data.pois[i].x, data.pois[i].z).magnitude;
-                Label(new Rect(rr.x + 76, rr.y + 6, 400, 34), nm, new GUIStyle(mid) { fontSize = 22 }, Color.white);
-                Label(new Rect(rr.x + 76, rr.y + 36, 300, 24), $"約{d:F0}m", small, new Color(1, 1, 1, 0.9f));
-                int stars = PlayerPrefs.GetInt("stars_" + data.pois[i].id, 0); float best = PlayerPrefs.GetFloat("best_" + data.pois[i].id, 9999f);
-                string ss = ""; for (int k2 = 0; k2 < 3; k2++) ss += k2 < stars ? "★" : "☆";
-                Label(new Rect(rr.xMax - 190, rr.y + 4, 180, 36), ss, new GUIStyle(mid) { alignment = TextAnchor.MiddleRight, fontSize = 30 }, stars > 0 ? new Color(1f, .93f, .35f) : new Color(1, 1, 1, 0.6f));
-                if (best < 9000f) Label(new Rect(rr.xMax - 190, rr.y + 38, 180, 24), $"BEST {best:F1}s", new GUIStyle(small) { alignment = TextAnchor.MiddleRight }, Color.white);
-                if (GUI.Button(r, GUIContent.none, GUIStyle.none)) StartRace(i);
-            }
-            Label(new Rect(0, H - 52, W, 30), "WASD 移動   Shift ダッシュ   Space すり抜け   E かき分け   (1〜6キーでも選べます)", new GUIStyle(small) { alignment = TextAnchor.MiddleCenter }, new Color(1, 1, 1, 0.95f));
-        }
-
-        void DrawTopLeft(float W, float H)
-        {
-            bool frozen = fx.ClockFrozen;
-            Panel(new Rect(16, 14, 250, 76), frozen ? new Color(.2f, .55f, .95f, .92f) : new Color(.18f, .17f, .36f, .8f), 4f);
-            Label(new Rect(26, 16, 232, 70), frozen ? $"❚❚ {raceT:F2}" : $"{raceT:F2}", new GUIStyle(huge) { fontSize = 50, alignment = TextAnchor.MiddleLeft }, Color.white);
-            Label(new Rect(196, 38, 60, 40), "秒", small, new Color(1, 1, 1, 0.85f));
-            Panel(new Rect(16, 98, 300, 34), new Color(1f, .78f, .2f, .92f), 3f);
-            Label(new Rect(28, 99, 284, 30), "▶ " + goalName, new GUIStyle(small) { fontSize = 16 }, new Color(.25f, .15f, .05f));
-        }
-
-        void DrawMinimap(float W, float H)
-        {
-            var mr = new Rect(W - 236, 16, 220, 220);
-            Panel(new Rect(mr.x - 5, mr.y - 5, mr.width + 10, mr.height + 10), new Color(1, 1, 1, 0.9f), 4f);
-            GUI.DrawTexture(mr, miniRt, ScaleMode.StretchToFill, false);
-            Disc(new Rect(mr.center.x - 6, mr.center.y - 6, 12, 12), new Color(1f, .45f, .1f));
-            var rel = (goal - player.pos) / 110f; var gp = mr.center + new Vector2(rel.x, -rel.y) * 110f;
-            gp = new Vector2(Mathf.Clamp(gp.x, mr.xMin + 8, mr.xMax - 8), Mathf.Clamp(gp.y, mr.yMin + 8, mr.yMax - 8));
-            float pu = 1f + 0.2f * Mathf.Sin(Time.unscaledTime * 6f); Disc(new Rect(gp.x - 8 * pu, gp.y - 8 * pu, 16 * pu, 16 * pu), new Color(1, .82f, .1f));
-        }
-
-        void DrawCombo(float W, float H)
-        {
-            if (combo < 2) return;
-            float k = 1f + 0.55f * Mathf.Exp(-(Time.unscaledTime - comboPop) * 9f);
-            float lv = Mathf.Clamp01(combo / 60f); var col = Color.Lerp(Color.Lerp(Color.white, new Color(1f, .9f, .2f), Mathf.Clamp01(lv * 2)), new Color(1f, .35f, .55f), Mathf.Clamp01(lv * 2 - 1));
-            var mat = GUI.matrix; var piv = new Vector2(W - 120, 330); GUIUtility.ScaleAroundPivot(new Vector2(k, k), piv);
-            Label(new Rect(piv.x - 130, piv.y - 70, 260, 34), "COMBO", new GUIStyle(small) { alignment = TextAnchor.MiddleCenter, fontSize = 22 }, new Color(1, 1, 1, 0.95f));
-            Label(new Rect(piv.x - 130, piv.y - 40, 260, 90), "x" + (int)combo, new GUIStyle(huge) { fontSize = 84 }, col);
-            var old = GUI.color; GUI.color = new Color(1, 1, 1, 0.9f); GUI.DrawTexture(new Rect(piv.x - 90, piv.y + 56, 180 * Mathf.Clamp01(comboT / 1.6f), 8), Texture2D.whiteTexture); GUI.color = old;
-            GUI.matrix = mat;
-        }
-
-        void DrawSkills(float W, float H)
-        {
-            Skill(new Vector2(W / 2 - 130, H - 84), "SHIFT", "ダッシュ", player.dashCd, Player.DashCool, player.dashT > 0, new Color(1f, .72f, .2f));
-            Skill(new Vector2(W / 2, H - 84), "SPACE", "すり抜け", player.slipCd, Player.SlipCool, player.Slipping, new Color(.4f, .85f, 1f));
-            Skill(new Vector2(W / 2 + 130, H - 84), "E", "かき分け", player.shoveCd, Player.ShoveCool, player.shoveFx > 0, new Color(1f, .45f, .5f));
-        }
-
-        void Skill(Vector2 c, string key, string name, float cd, float total, bool active, Color col)
-        {
-            const float R = 40f; bool ready = cd <= 0f; float f = ready || active ? 1f : 1f - cd / total;
-            var rect = new Rect(c.x - R, c.y - R, R * 2, R * 2);
-            float pulse = ready ? 1f + 0.05f * Mathf.Sin(Time.unscaledTime * 7f) : 1f; if (active) pulse = 1.2f;
-            var rr = new Rect(c.x - R * pulse - 5, c.y - R * pulse - 5, (R * pulse + 5) * 2, (R * pulse + 5) * 2);
-            Disc(rr, ready || active ? new Color(1, 1, 1, 0.95f) : new Color(1, 1, 1, 0.55f));
-            var inner = new Rect(c.x - R * pulse, c.y - R * pulse, R * 2 * pulse, R * 2 * pulse);
-            Disc(inner, new Color(.16f, .14f, .3f, 0.95f));
-            GUI.BeginGroup(new Rect(inner.x, inner.y + inner.height * (1f - f), inner.width, inner.height * f));
-            Disc(new Rect(0, -inner.height * (1f - f), inner.width, inner.height), active ? Color.white : col);
-            GUI.EndGroup();
-            Label(rect, ready || active ? key : $"{cd:F1}", new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = ready ? 17 : 24 }, Color.white);
-            Label(new Rect(c.x - 70, c.y + R + 2, 140, 24), name, new GUIStyle(small) { alignment = TextAnchor.MiddleCenter, fontSize = 15 }, new Color(1, 1, 1, 0.95f));
-        }
-
-        void DrawPops(float W, float H, float sc)
-        {
-            foreach (var p in pops)
-            {
-                var sp = cam.WorldToScreenPoint(p.w + Vector3.up * (p.age * 2.2f)); if (sp.z < 0) continue;
-                float k = (1f + 0.8f * Mathf.Exp(-p.age * 12f)) * p.size; float a = Mathf.Clamp01((p.life - p.age) / 0.35f);
-                var mat = GUI.matrix; var pv = new Vector2(sp.x / sc, (Screen.height - sp.y) / sc); GUIUtility.ScaleAroundPivot(new Vector2(k, k), pv);
-                var c = p.c; c.a = a; Label(new Rect(pv.x - 100, pv.y - 20, 200, 40), p.s, new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = 28 }, c);
-                GUI.matrix = mat;
-            }
-        }
-
-        void DrawCountdown(float W, float H)
-        {
-            int n = Mathf.Max(1, 3 - (int)stateT); float frac = stateT - Mathf.Floor(stateT);
-            float k = 1f + 1.2f * Mathf.Exp(-frac * 9f); var mat = GUI.matrix; var piv = new Vector2(W / 2, H / 2 - 40); GUIUtility.ScaleAroundPivot(new Vector2(k, k), piv);
-            Label(new Rect(0, piv.y - 70, W, 140), n.ToString(), new GUIStyle(huge) { fontSize = 130 }, Candy[(3 - n) % Candy.Length]);
-            GUI.matrix = mat;
-        }
-
-        void DrawFinish(float W, float H)
-        {
-            var p = new Rect(W / 2 - 300, H / 2 - 210, 600, 400); float t = stateT;
-            Panel(p, new Color(.2f, .18f, .42f, .96f), 8f);
-            float k = 1f + 0.5f * Mathf.Exp(-t * 8f); var mat = GUI.matrix; GUIUtility.ScaleAroundPivot(new Vector2(k, k), new Vector2(W / 2, p.y + 60));
-            Label(new Rect(p.x, p.y + 14, p.width, 90), "到着!", new GUIStyle(huge) { fontSize = 70 }, new Color(1, .9f, .3f)); GUI.matrix = mat;
-            Label(new Rect(p.x, p.y + 100, p.width, 36), goalName, new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter }, Color.white);
-            float shown = Mathf.Min(raceT, raceT * Mathf.Clamp01(t / 0.8f));
-            Label(new Rect(p.x, p.y + 132, p.width, 90), $"{shown:F2} 秒", new GUIStyle(huge) { fontSize = 66 }, Color.white);
-            for (int i = 0; i < 3; i++)
-            {
-                float st = 0.9f + i * 0.4f; bool on = i < starsEarned && t > st; float ks = on ? 1f + 1.0f * Mathf.Exp(-(t - st) * 9f) : 1f;
-                var mat2 = GUI.matrix; var pv = new Vector2(W / 2 + (i - 1) * 96, p.y + 270); GUIUtility.ScaleAroundPivot(new Vector2(ks, ks), pv);
-                Label(new Rect(pv.x - 50, pv.y - 45, 100, 90), on ? "★" : "☆", new GUIStyle(huge) { fontSize = 84 }, on ? new Color(1f, .88f, .2f) : new Color(1, 1, 1, 0.4f));
-                GUI.matrix = mat2;
-            }
-            if (resultNote != "") Label(new Rect(p.x, p.y + 318, p.width, 30), resultNote, new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter }, new Color(.5f, 1f, .6f));
-            Label(new Rect(p.x, p.y + 350, p.width, 30), "R もう一度     M 目的地を選ぶ", new GUIStyle(small) { alignment = TextAnchor.MiddleCenter }, new Color(1, 1, 1, 0.9f));
-        }
-
-        // ---------------- 演出・矢印 ----------------
-        void DrawOverlays(float W, float H)
-        {
-            var old = GUI.color; var full = new Rect(0, 0, W, H);
-            var vc = fx.VignetteColor; if (vc.a > 0.01f) { GUI.color = vc; GUI.DrawTexture(full, vigTex, ScaleMode.StretchToFill, true); }
-            if (fx.SpeedLines > 0.02f)
-            {   // 中心から外へ走る線
-                var mat = GUI.matrix; var ctr = new Vector2(W / 2, H / 2); float t = Time.unscaledTime;
-                for (int i = 0; i < 56; i++)
-                {
-                    float ang = i * (360f / 56f) + Mathf.Sin(i * 12.9898f + Mathf.Floor(t * 24f)) * 3f;
-                    float r0 = H * (0.36f + 0.1f * Mathf.Abs(Mathf.Sin(i * 3.1f + Mathf.Floor(t * 30f)))), len = H * (0.18f + 0.3f * Mathf.Abs(Mathf.Sin(i * 7.7f)));
-                    GUI.matrix = mat; GUIUtility.RotateAroundPivot(ang, ctr);
-                    GUI.color = new Color(1, 1, 1, 0.55f * fx.SpeedLines * (0.4f + 0.6f * Mathf.Abs(Mathf.Sin(i * 5.3f))));
-                    GUI.DrawTexture(new Rect(ctr.x - 1.5f, ctr.y - r0 - len, 3f, len), Texture2D.whiteTexture);
-                }
-                GUI.matrix = mat;
-            }
-            var fl = fx.Flash; if (fl.a > 0.01f) { GUI.color = fl; GUI.DrawTexture(full, Texture2D.whiteTexture); }
-            GUI.color = old;
-        }
-
-        void DrawBanner(float W, float H)
-        {
-            if (fx.BannerT <= 0f) return;
-            float a = Mathf.Clamp01(fx.BannerT / 0.35f), age = 1f - Mathf.Clamp01(fx.BannerT / 1.4f);
-            float pop = 1f + 0.9f * Mathf.Exp(-age * 14f);                          // 出現時にドンと大きく
-            var mat = GUI.matrix; var piv = new Vector2(W / 2, H * 0.36f);
-            GUIUtility.ScaleAroundPivot(new Vector2(pop, pop), piv);
-            var c = fx.BannerColor; c.a = a;
-            Label(new Rect(0, piv.y - 45, W, 90), fx.Banner, big, c);
-            var sub = new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter }; var cs = new Color(1, 1, 1, a);
-            Label(new Rect(0, piv.y + 30, W, 40), fx.BannerSub, sub, cs);
-            GUI.matrix = mat;
-        }
-
-        /// <summary>画面上部に、目的地の方向を示す大きな矢印を常に出す(カメラの向きに対する相対角)。</summary>
-        void DrawGoalArrow(float W, float H, float dist)
-        {
-            var to = goal - player.pos; float bearing = Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg;
-            float rel = Mathf.DeltaAngle(camYaw, bearing);
-            var ctr = new Vector2(W / 2, 92); var mat = GUI.matrix; var old = GUI.color;
-            float pulse = 1f + 0.06f * Mathf.Sin(Time.unscaledTime * 6f);
-            GUIUtility.RotateAroundPivot(rel, ctr);
-            float sz = 96f * pulse;
-            GUI.color = new Color(0, 0, 0, 0.6f); GUI.DrawTexture(new Rect(ctr.x - sz / 2 - 6, ctr.y - sz / 2 - 6, sz + 12, sz + 12), arrowTex);
-            GUI.color = new Color(1f, 0.85f, 0.15f, 1f); GUI.DrawTexture(new Rect(ctr.x - sz / 2, ctr.y - sz / 2, sz, sz), arrowTex);
-            GUI.matrix = mat; GUI.color = old;
-            Label(new Rect(W / 2 - 160, ctr.y + 50, 320, 34), $"{dist:F0} m", new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter }, new Color(1, 0.92f, 0.35f));
-        }
-
-        /// <summary>プレイヤーの前方に浮かぶ3Dの矢印。目的地の方向を指す。</summary>
-        void UpdateRings()
-        {
-            bool on = state == GameState.Countdown || state == GameState.Playing;
-            playerRing.SetActive(on); goalRing.SetActive(on);
-            if (!on) return;
-            float t = Time.unscaledTime; var hf = Heightfield.Current;
-            playerRing.transform.position = new Vector3(player.pos.x, hf.Height(player.pos.x, player.pos.y) + player.lift + 0.12f, player.pos.y);
-            playerRing.transform.rotation = Quaternion.Euler(90, 0, 0); float ps = 2.4f * (1f + 0.07f * Mathf.Sin(t * 8f)); playerRing.transform.localScale = new Vector3(ps, ps, 1);
-            playerRing.GetComponent<MeshRenderer>().material.SetColor("_BaseColor", new Color(1f, .75f, .15f, 0.95f));
-            goalRing.transform.position = new Vector3(goal.x, hf.Height(goal.x, goal.y) + goalLift + 0.15f, goal.y);
-            goalRing.transform.rotation = Quaternion.Euler(90, 0, 0); float gs = GoalRadius * 2f * (1f + 0.06f * Mathf.Sin(t * 4f)); goalRing.transform.localScale = new Vector3(gs, gs, 1);
-            goalRing.GetComponent<MeshRenderer>().material.SetColor("_BaseColor", new Color(1f, .85f, .2f, 0.9f));
-        }
-
-        void UpdateArrow()
-        {
-            bool on = state == GameState.Countdown || state == GameState.Playing;
-            arrow3d.SetActive(on); if (!on) return;
-            var to = goal - player.pos; var dir = to.sqrMagnitude > 1e-4f ? to.normalized : Vector2.up;
-            var p = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
-            arrow3d.transform.position = p + new Vector3(dir.x, 0, dir.y) * 1.9f + Vector3.up * (2.5f + 0.12f * Mathf.Sin(Time.unscaledTime * 5f));
-            arrow3d.transform.rotation = Quaternion.LookRotation(new Vector3(dir.x, 0, dir.y));
-            float k = 1.1f + 0.1f * Mathf.Sin(Time.unscaledTime * 5f); arrow3d.transform.localScale = new Vector3(k, k, k);
-        }
-
-        static Mesh ArrowMesh()
-        {
-            var v = new List<Vector3>(); var t = new List<int>();
-            void Tri(Vector3 a, Vector3 b, Vector3 c) { int s = v.Count; v.Add(a); v.Add(b); v.Add(c); t.Add(s); t.Add(s + 1); t.Add(s + 2); }
-            void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d) { Tri(a, b, c); Tri(a, c, d); }
-            float w = 0.13f, h = 0.09f, L = 0.9f;
-            // 軸(+Z方向に伸びる箱)
-            Quad(new Vector3(-w, h, 0), new Vector3(-w, h, L), new Vector3(w, h, L), new Vector3(w, h, 0));       // 上
-            Quad(new Vector3(-w, -h, 0), new Vector3(w, -h, 0), new Vector3(w, -h, L), new Vector3(-w, -h, L));   // 下
-            Quad(new Vector3(-w, -h, 0), new Vector3(-w, -h, L), new Vector3(-w, h, L), new Vector3(-w, h, 0));   // 左
-            Quad(new Vector3(w, -h, 0), new Vector3(w, h, 0), new Vector3(w, h, L), new Vector3(w, -h, L));       // 右
-            Quad(new Vector3(-w, -h, 0), new Vector3(-w, h, 0), new Vector3(w, h, 0), new Vector3(w, -h, 0));     // 後ろ
-            // 頭(ピラミッド)
-            float hw = 0.42f, hh = 0.12f, tip = 1.7f;
-            var a0 = new Vector3(-hw, -hh, L); var b0 = new Vector3(hw, -hh, L); var c0 = new Vector3(hw, hh, L); var d0 = new Vector3(-hw, hh, L); var ap = new Vector3(0, 0, tip);
-            Quad(a0, d0, c0, b0);
-            Tri(a0, ap, d0); Tri(d0, ap, c0); Tri(c0, ap, b0); Tri(b0, ap, a0);
-            var m = new Mesh { name = "GoalArrow" }; m.SetVertices(v); m.SetTriangles(t, 0); m.RecalculateNormals(); m.RecalculateBounds(); return m;
-        }
-
-        static Texture2D MakeArrowTex()
-        {
-            const int N = 128; var tx = new Texture2D(N, N, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp };
-            for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
-            {
-                float u = (x + .5f) / N - .5f, vv = (y + .5f) / N;            // vv: 下0→上1 (画面では上向き)
-                bool head = vv > 0.5f && Mathf.Abs(u) < (1f - vv) * 0.9f + 0.0f && vv < 0.97f;
-                bool shaft = vv <= 0.55f && vv > 0.08f && Mathf.Abs(u) < 0.12f;
-                tx.SetPixel(x, y, head || shaft ? Color.white : Color.clear);
-            }
-            tx.Apply(); return tx;
-        }
-
-        static Texture2D MakeVignetteTex()
-        {
-            const int N = 128; var tx = new Texture2D(N, N, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp };
-            for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
-            {
-                float u = (x + .5f) / N * 2 - 1, vv = (y + .5f) / N * 2 - 1; float r = Mathf.Sqrt(u * u + vv * vv) / 1.2f;
-                float a = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((r - 0.45f) / 0.55f));
-                tx.SetPixel(x, y, new Color(1, 1, 1, a));
-            }
-            tx.Apply(); return tx;
         }
     }
 }

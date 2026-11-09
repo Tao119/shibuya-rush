@@ -32,7 +32,7 @@ namespace ShibuyaRush
             var cum = new List<float>(); var ids = new List<int>(); float tot = 0;
             for (int i = 0; i < g.edges.Count; i++)
             {
-                if (!g.inMain[g.edges[i].a]) continue;
+                if (!g.inMain[g.edges[i].a] || g.edges[i].width <= 0f) continue;
                 float dc = g.nodes[g.edges[i].a].magnitude;   // 中心(ハチ公前)付近ほど混む
                 tot += g.edges[i].len * Mathf.Min(g.edges[i].width, 14f) * (0.35f + 2.5f * Mathf.Exp(-dc / 260f));
                 cum.Add(tot); ids.Add(i);

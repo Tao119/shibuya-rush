@@ -131,8 +131,19 @@ if not any(p["id"] == 136691387 for p in pois):
     la, lo = extra[136691387]
     pois.append({"id": 136691387, "name": want[136691387][0], "x": xz({"lat": la, "lon": lo})[0], "z": xz({"lat": la, "lon": lo})[1]})
 
+def points(name):
+    f = RAW / f"{name}.json"
+    if not f.exists(): return []
+    out = []
+    for e in json.load(open(f))["elements"]:
+        if e["type"] == "node":
+            x, z = xz(e); out += [x, z]
+    return out
+trees = points("trees"); lamps = points("lamps")
+print("trees", len(trees) // 2, "lamps", len(lamps) // 2)
+
 OUT.parent.mkdir(parents=True, exist_ok=True)
-OUT.write_text(json.dumps({"roads": roads, "buildings": buildings, "pois": pois},
+OUT.write_text(json.dumps({"roads": roads, "buildings": buildings, "pois": pois, "trees": trees, "lamps": lamps},
                           ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 print("building height source:", stat)
 print(f"roads={len(roads)} buildings={len(buildings)} pois={len(pois)} {OUT.stat().st_size/1e6:.1f}MB")

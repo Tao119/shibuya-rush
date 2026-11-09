@@ -143,13 +143,13 @@ namespace ShibuyaRush
         public void Render(Vector3 camPos, Vector3 camFwd)
         {
             var f = new Vector2(camFwd.x, camFwd.z).normalized; var c = new Vector2(camPos.x, camPos.z);
-            float near2 = NearDist * NearDist, far2 = FarDist * FarDist;
+            float near2 = NearDist * NearDist, far2 = FarDist * FarDist; var hf = Heightfield.Current;
             for (int i = 0; i < a.Length; i++)
             {
                 var d = a[i].pos - c; float d2 = d.sqrMagnitude;
                 if (d2 > far2) continue;
                 if (d2 > 100f && Vector2.Dot(d, f) < 0.25f * Mathf.Sqrt(d2)) continue; // 視野外(約±75度の外)
-                var p = new Vector3(a[i].pos.x, 0, a[i].pos.y);
+                var p = new Vector3(a[i].pos.x, hf.Height(a[i].pos.x, a[i].pos.y), a[i].pos.y);
                 if (d2 < near2) hr.Add(p, a[i].yaw, a[i].phase, 1f, a[i].tint, a[i].scale);
                 else hr.AddFar(p, a[i].tint, a[i].scale);
             }

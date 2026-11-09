@@ -28,12 +28,22 @@ namespace ShibuyaRush
 
         void MakeGround(Transform parent, Material mat)
         {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            Object.Destroy(go.GetComponent<Collider>());
-            go.name = "Ground"; go.transform.SetParent(parent);
-            go.transform.localScale = new Vector3(400, 1, 400);
-            go.transform.position = new Vector3(0, -0.05f, 0);
-            go.GetComponent<MeshRenderer>().sharedMaterial = mat;
+            var hf = Heightfield.Current;
+            // 範囲外まで広がる下敷きの平面(標高格子の外側を埋める)
+            var far = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            Object.Destroy(far.GetComponent<Collider>()); far.name = "GroundFar"; far.transform.SetParent(parent);
+            far.transform.localScale = new Vector3(400, 1, 400); far.transform.position = new Vector3(0, hf.Loaded ? -8f : -0.05f, 0);
+            far.GetComponent<MeshRenderer>().sharedMaterial = mat;
+            if (!hf.Loaded) return;
+            var v = new List<Vector3>(hf.nx * hf.nz); var t = new List<int>();
+            for (int j = 0; j < hf.nz; j++) for (int i = 0; i < hf.nx; i++)
+                v.Add(new Vector3(hf.minX + i * hf.step, hf.At(i, j) - 0.2f, hf.minZ + j * hf.step));
+            for (int j = 0; j + 1 < hf.nz; j++) for (int i = 0; i + 1 < hf.nx; i++)
+            {
+                int k = j * hf.nx + i;
+                t.Add(k); t.Add(k + hf.nx); t.Add(k + 1); t.Add(k + 1); t.Add(k + hf.nx); t.Add(k + hf.nx + 1);
+            }
+            MeshObject(parent, "Ground", ToMesh(v, t), mat);
         }
 
         static GameObject MeshObject(Transform parent, string name, Mesh m, Material mat)
@@ -55,31 +65,37 @@ namespace ShibuyaRush
                 var v = footway ? wv : rv; var idx = footway ? wi : ri;
                 float y = footway ? 0.04f : (r.bridge ? 0.03f : 0.02f);
                 float half = r.w * 0.5f;
+                var hf = Heightfield.Current;
                 for (int i = 0; i + 3 < r.p.Length; i += 2)
                 {
-                    var a = new Vector2(r.p[i], r.p[i + 1]); var b = new Vector2(r.p[i + 2], r.p[i + 3]);
-                    var d = b - a; if (d.sqrMagnitude < 1e-4f) continue; d.Normalize();
+                    var a0 = new Vector2(r.p[i], r.p[i + 1]); var b0 = new Vector2(r.p[i + 2], r.p[i + 3]);
+                    var d = b0 - a0; float L = d.magnitude; if (L < 1e-2f) continue; d /= L;
                     var n = new Vector2(-d.y, d.x) * half;
-                    int s = v.Count;
-                    v.Add(new Vector3(a.x - n.x, y, a.y - n.y)); v.Add(new Vector3(a.x + n.x, y, a.y + n.y));
-                    v.Add(new Vector3(b.x + n.x, y, b.y + n.y)); v.Add(new Vector3(b.x - n.x, y, b.y - n.y));
-                    idx.Add(s); idx.Add(s + 1); idx.Add(s + 2); idx.Add(s); idx.Add(s + 2); idx.Add(s + 3);
-                    // 継ぎ目を丸める簡易ジョイント(四角形の隙間を埋める)
-                    AddDisc(v, idx, b, half, y);
+                    int pieces = Mathf.Max(1, Mathf.CeilToInt(L / 4f));
+                    for (int k = 0; k < pieces; k++)
+                    {
+                        var a = Vector2.Lerp(a0, b0, (float)k / pieces); var b = Vector2.Lerp(a0, b0, (float)(k + 1) / pieces);
+                        int s = v.Count;
+                        v.Add(Pt(a - n, y)); v.Add(Pt(a + n, y)); v.Add(Pt(b + n, y)); v.Add(Pt(b - n, y));
+                        idx.Add(s); idx.Add(s + 1); idx.Add(s + 2); idx.Add(s); idx.Add(s + 2); idx.Add(s + 3);
+                    }
+                    AddDisc(v, idx, b0, half, y);
                 }
             }
             MeshObject(parent, "Roads", ToMesh(rv, ri), road);
             MeshObject(parent, "Walkways", ToMesh(wv, wi), walkway);
         }
 
+        static Vector3 Pt(Vector2 p, float y) => new Vector3(p.x, Heightfield.Current.Height(p.x, p.y) + y, p.y);
+
         static void AddDisc(List<Vector3> v, List<int> idx, Vector2 c, float r, float y)
         {
             const int N = 8; int s = v.Count;
-            v.Add(new Vector3(c.x, y, c.y));
+            v.Add(Pt(c, y));
             for (int i = 0; i < N; i++)
             {
                 float a = i * Mathf.PI * 2f / N;
-                v.Add(new Vector3(c.x + Mathf.Cos(a) * r, y, c.y + Mathf.Sin(a) * r));
+                v.Add(Pt(new Vector2(c.x + Mathf.Cos(a) * r, c.y + Mathf.Sin(a) * r), y));
             }
             for (int i = 0; i < N; i++) { idx.Add(s); idx.Add(s + 1 + (i + 1) % N); idx.Add(s + 1 + i); }
         }
@@ -123,16 +139,19 @@ namespace ShibuyaRush
 
         static void Extrude(Vector2[] poly, float h, List<Vector3> v, List<int> t)
         {
-            int n = poly.Length;
-            for (int i = 0; i < n; i++) // 壁(頂点を共有しないのでフラットシェード)
+            int n = poly.Length; var hf = Heightfield.Current;
+            var gy = new float[n]; float baseY = float.MaxValue;
+            for (int i = 0; i < n; i++) { gy[i] = hf.Height(poly[i].x, poly[i].y); baseY = Mathf.Min(baseY, gy[i]); }
+            float top = baseY + h;
+            for (int i = 0; i < n; i++) // 壁(下端は各頂点の地面より少し下まで。坂でも浮かない)
             {
-                var a = poly[i]; var b = poly[(i + 1) % n]; int s = v.Count;
-                v.Add(new Vector3(a.x, 0, a.y)); v.Add(new Vector3(b.x, 0, b.y));
-                v.Add(new Vector3(b.x, h, b.y)); v.Add(new Vector3(a.x, h, a.y));
+                int j = (i + 1) % n; var a = poly[i]; var b = poly[j]; int s = v.Count;
+                v.Add(new Vector3(a.x, gy[i] - 1.5f, a.y)); v.Add(new Vector3(b.x, gy[j] - 1.5f, b.y));
+                v.Add(new Vector3(b.x, top, b.y)); v.Add(new Vector3(a.x, top, a.y));
                 t.Add(s); t.Add(s + 3); t.Add(s + 2); t.Add(s); t.Add(s + 2); t.Add(s + 1);
             }
             int roof = v.Count;
-            for (int i = 0; i < n; i++) v.Add(new Vector3(poly[i].x, h, poly[i].y));
+            for (int i = 0; i < n; i++) v.Add(new Vector3(poly[i].x, top, poly[i].y));
             foreach (var tri in EarClip(poly)) { t.Add(roof + tri.x); t.Add(roof + tri.z); t.Add(roof + tri.y); }
         }
 

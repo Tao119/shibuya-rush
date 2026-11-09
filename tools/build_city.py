@@ -38,6 +38,41 @@ for e in json.load(open(RAW / "roads.json"))["elements"]:
                   "tunnel": t.get("tunnel") == "yes" or (num(t.get("layer")) or 0) < 0,
                   "p": flat(g)})
 
+# PLATEAU(LOD2)の建物高さ。OSM建物の代表点を含むPLATEAU建物の高さを採用する
+plateau = []
+pf = RAW / "plateau.json"
+if pf.exists():
+    for o in json.load(open(pf)):
+        if o["h"] is None: continue
+        pts = [((lo - LON0) * KX, (la - LAT0) * KY) for lo, la in o["p"]]
+        xs = [q[0] for q in pts]; zs = [q[1] for q in pts]
+        plateau.append((min(xs), min(zs), max(xs), max(zs), pts, o["h"]))
+CELL = 30.0
+pgrid = {}
+for i, b in enumerate(plateau):
+    for cx in range(int(b[0] // CELL), int(b[2] // CELL) + 1):
+        for cz in range(int(b[1] // CELL), int(b[3] // CELL) + 1):
+            pgrid.setdefault((cx, cz), []).append(i)
+
+def inside(pts, x, z):
+    c = False; j = len(pts) - 1
+    for i in range(len(pts)):
+        if (pts[i][1] > z) != (pts[j][1] > z) and x < (pts[j][0] - pts[i][0]) * (z - pts[i][1]) / (pts[j][1] - pts[i][1]) + pts[i][0]:
+            c = not c
+        j = i
+    return c
+
+def plateau_height(flatpts):
+    n = len(flatpts) // 2
+    cx = sum(flatpts[0::2]) / n; cz = sum(flatpts[1::2]) / n
+    probes = [(cx, cz)] + [((cx + flatpts[2 * k]) / 2, (cz + flatpts[2 * k + 1]) / 2) for k in range(n)]
+    for x, z in probes:
+        hs = [plateau[i][5] for i in pgrid.get((int(x // CELL), int(z // CELL)), []) if
+              plateau[i][0] <= x <= plateau[i][2] and plateau[i][1] <= z <= plateau[i][3] and inside(plateau[i][4], x, z)]
+        if hs: return max(hs)
+    return None
+
+stat = {"plateau": 0, "osm": 0, "default": 0}
 buildings = []
 for e in json.load(open(RAW / "buildings.json"))["elements"]:
     rings = []
@@ -46,15 +81,19 @@ for e in json.load(open(RAW / "buildings.json"))["elements"]:
     else:
         rings = [m["geometry"] for m in e.get("members", []) if m.get("role") == "outer" and m.get("geometry")]
     t = e.get("tags", {})
-    h = num(t.get("height"))
-    if h is None:
+    h_osm = num(t.get("height"))
+    if h_osm is None:
         lv = num(t.get("building:levels"))
-        h = lv * 3.3 if lv else 14.0
-    h = max(4.0, min(h, 260.0))
+        h_osm = lv * 3.3 if lv else None
     for r in rings:
         if len(r) < 4: continue
         pts = flat(r[:-1] if r[0] == r[-1] else r)
-        buildings.append({"h": h, "name": t.get("name", ""), "p": pts})
+        hp = plateau_height(pts) if plateau else None
+        if hp is not None: h, src = hp, "plateau"
+        elif h_osm is not None: h, src = h_osm, "osm"
+        else: h, src = 14.0, "default"
+        stat[src] += 1
+        buildings.append({"h": round(max(4.0, min(h, 260.0)), 1), "src": src, "name": t.get("name", ""), "p": pts})
 
 pois = []
 want = {
@@ -77,5 +116,6 @@ if not any(p["id"] == 136691387 for p in pois):
 OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text(json.dumps({"roads": roads, "buildings": buildings, "pois": pois},
                           ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+print("building height source:", stat)
 print(f"roads={len(roads)} buildings={len(buildings)} pois={len(pois)} {OUT.stat().st_size/1e6:.1f}MB")
 for p in pois: print(p)

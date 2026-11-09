@@ -40,6 +40,7 @@ namespace ShibuyaRush
 
         void Start()
         {
+            Heightfield.Load();
             data = CityData.Load();
             city = new CityBuilder();
             var pal = new Material[CityBuilder.PaletteSize];
@@ -71,7 +72,7 @@ namespace ShibuyaRush
             poiIndex = idx; var poi = data.pois[idx]; goalName = poi.name;
             goal = graph.nodes[graph.NearestNode(new Vector2(poi.x, poi.z))];
             player.pos = Vector2.zero; player.yaw = 0; raceT = 0; state = GameState.Countdown; stateT = 0;
-            beam.SetActive(true); beam.transform.position = new Vector3(goal.x, 40, goal.y); beam.transform.localScale = new Vector3(2.4f, 40f, 2.4f);
+            beam.SetActive(true); beam.transform.position = new Vector3(goal.x, Heightfield.Current.Height(goal.x, goal.y) + 40, goal.y); beam.transform.localScale = new Vector3(2.4f, 40f, 2.4f);
             if (autoplay) { botPath = graph.Path(player.pos, goal); botIdx = 0; Debug.Log($"[Bot] route nodes={botPath.Count} dest={goalName}"); if (shotDir != null) Directory.CreateDirectory(shotDir); }
             Cursor.lockState = autoplay ? CursorLockMode.None : CursorLockMode.Locked;
         }
@@ -148,7 +149,7 @@ namespace ShibuyaRush
             UpdateCamera(dt);
             crowd.Render(cam.transform.position, cam.transform.forward);
             float lean = Mathf.Clamp(player.speedNow * 1.6f, 0, 18f);
-            playerHr.Add(new Vector3(player.pos.x, 0, player.pos.y), player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.05f, lean);
+            playerHr.Add(new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y), player.pos.y), player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.05f, lean);
             crowdHr.Flush(); playerHr.Flush();
             beam.transform.Rotate(0, 60 * dt, 0);
 
@@ -181,7 +182,7 @@ namespace ShibuyaRush
 
         void UpdateCamera(float dt)
         {
-            var p = new Vector3(player.pos.x, 0, player.pos.y);
+            var p = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y), player.pos.y);
             float y = camYaw * Mathf.Deg2Rad; var back = new Vector3(-Mathf.Sin(y), 0, -Mathf.Cos(y));
             var want = p + back * 6.5f + Vector3.up * 4.2f;
             cam.transform.position = Vector3.Lerp(cam.transform.position, want, 1f - Mathf.Exp(-14f * dt));

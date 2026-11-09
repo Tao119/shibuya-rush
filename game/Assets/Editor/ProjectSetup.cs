@@ -22,6 +22,24 @@ public static class ProjectSetup
         EditorUtility.SetDirty(m); return m;
     }
 
+    /// <summary>窓つきの外壁テクスチャ(壁は白、窓は暗い青。素材色で壁の色が決まる)。</summary>
+    static Texture2D MakeFacade()
+    {
+        const string path = "Assets/Resources/Facade.png"; const int N = 64;
+        var tex = new Texture2D(N, N, TextureFormat.RGBA32, false);
+        for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
+        {
+            bool win = x >= 12 && x < 52 && y >= 18 && y < 50;
+            bool sill = x >= 10 && x < 54 && y >= 15 && y < 18;
+            tex.SetPixel(x, y, win ? new Color(.30f, .38f, .50f) : sill ? new Color(.78f, .78f, .78f) : Color.white);
+        }
+        File.WriteAllBytes(path, tex.EncodeToPNG()); AssetDatabase.ImportAsset(path);
+        var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+        imp.wrapMode = TextureWrapMode.Repeat; imp.mipmapEnabled = true; imp.filterMode = FilterMode.Bilinear; imp.anisoLevel = 4; imp.sRGBTexture = true;
+        imp.SaveAndReimport();
+        return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+    }
+
     static void SetupUrp()
     {
         Directory.CreateDirectory("Assets/Settings");
@@ -46,7 +64,8 @@ public static class ProjectSetup
         SetupUrp(); PlayerSettings.colorSpace = ColorSpace.Linear;
         Mat("Ground", new Color(0.60f, 0.63f, 0.58f)); Mat("Road", new Color(0.27f, 0.28f, 0.31f)); Mat("Walkway", new Color(0.74f, 0.71f, 0.65f));
         Color[] b = { new Color(.88f,.86f,.82f), new Color(.76f,.81f,.88f), new Color(.90f,.79f,.76f), new Color(.78f,.88f,.81f), new Color(.92f,.89f,.74f), new Color(.82f,.77f,.88f) };
-        for (int i = 0; i < b.Length; i++) Mat("Bld" + i, b[i], 0.15f);
+        var facade = MakeFacade();
+        for (int i = 0; i < b.Length; i++) { var bm = Mat("Bld" + i, b[i], 0.15f); bm.SetTexture("_BaseMap", facade); }
         Color[] t = { new Color(.90f,.25f,.25f), new Color(.2f,.5f,.9f), new Color(.25f,.75f,.4f), new Color(.95f,.8f,.2f), new Color(.7f,.35f,.85f),
                       new Color(.95f,.55f,.7f), new Color(.15f,.75f,.8f), new Color(.92f,.92f,.92f), new Color(.25f,.25f,.3f), new Color(.6f,.4f,.25f) };
         for (int i = 0; i < t.Length; i++) Mat("Tint" + i, t[i]);

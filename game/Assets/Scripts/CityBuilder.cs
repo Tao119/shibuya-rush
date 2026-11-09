@@ -110,8 +110,8 @@ namespace ShibuyaRush
 
         void MakeBuildings(Transform parent, CityData city, Material[] palette)
         {
-            var verts = new List<Vector3>[palette.Length]; var tris = new List<int>[palette.Length];
-            for (int i = 0; i < palette.Length; i++) { verts[i] = new List<Vector3>(); tris[i] = new List<int>(); }
+            var verts = new List<Vector3>[palette.Length]; var tris = new List<int>[palette.Length]; var uvs = new List<Vector2>[palette.Length];
+            for (int i = 0; i < palette.Length; i++) { verts[i] = new List<Vector3>(); tris[i] = new List<int>(); uvs[i] = new List<Vector2>(); }
             int bi = 0;
             foreach (var b in city.buildings)
             {
@@ -120,14 +120,14 @@ namespace ShibuyaRush
                 for (int i = 0; i < n; i++) poly[i] = new Vector2(b.p[i * 2], b.p[i * 2 + 1]);
                 if (SignedArea(poly) < 0) System.Array.Reverse(poly); // 反時計回りに揃える
                 int pal = Mathf.Abs((int)(poly[0].x * 7.13f + poly[0].y * 3.77f)) % palette.Length;
-                Extrude(poly, b.h, verts[pal], tris[pal]);
+                Extrude(poly, b.h, verts[pal], tris[pal], uvs[pal]);
                 Register(poly);
                 bi++;
             }
             for (int i = 0; i < palette.Length; i++)
             {
                 if (verts[i].Count == 0) continue;
-                MeshObject(parent, "Buildings" + i, ToMesh(verts[i], tris[i]), palette[i]);
+                { var bm = ToMesh(verts[i], tris[i]); bm.SetUVs(0, uvs[i]); MeshObject(parent, "Buildings" + i, bm, palette[i]); }
             }
         }
 
@@ -137,21 +137,25 @@ namespace ShibuyaRush
             return a * 0.5f;
         }
 
-        static void Extrude(Vector2[] poly, float h, List<Vector3> v, List<int> t)
+        static void Extrude(Vector2[] poly, float h, List<Vector3> v, List<int> t, List<Vector2> uv)
         {
             int n = poly.Length; var hf = Heightfield.Current;
             var gy = new float[n]; float baseY = float.MaxValue;
             for (int i = 0; i < n; i++) { gy[i] = hf.Height(poly[i].x, poly[i].y); baseY = Mathf.Min(baseY, gy[i]); }
             float top = baseY + h;
+            float run = 0f;
             for (int i = 0; i < n; i++) // 壁(下端は各頂点の地面より少し下まで。坂でも浮かない)
             {
                 int j = (i + 1) % n; var a = poly[i]; var b = poly[j]; int s = v.Count;
+                float u0 = run / 3f; run += (b - a).magnitude; float u1 = run / 3f;   // 窓の間隔 横3m・縦3.3m
+                uv.Add(new Vector2(u0, (gy[i] - 1.5f - baseY) / 3.3f)); uv.Add(new Vector2(u1, (gy[j] - 1.5f - baseY) / 3.3f));
+                uv.Add(new Vector2(u1, h / 3.3f)); uv.Add(new Vector2(u0, h / 3.3f));
                 v.Add(new Vector3(a.x, gy[i] - 1.5f, a.y)); v.Add(new Vector3(b.x, gy[j] - 1.5f, b.y));
                 v.Add(new Vector3(b.x, top, b.y)); v.Add(new Vector3(a.x, top, a.y));
                 t.Add(s); t.Add(s + 3); t.Add(s + 2); t.Add(s); t.Add(s + 2); t.Add(s + 1);
             }
             int roof = v.Count;
-            for (int i = 0; i < n; i++) v.Add(new Vector3(poly[i].x, top, poly[i].y));
+            for (int i = 0; i < n; i++) { v.Add(new Vector3(poly[i].x, top, poly[i].y)); uv.Add(new Vector2(0.03f, 0.03f)); } // 屋根は無地の隅
             foreach (var tri in EarClip(poly)) { t.Add(roof + tri.x); t.Add(roof + tri.z); t.Add(roof + tri.y); }
         }
 

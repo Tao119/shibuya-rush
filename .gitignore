@@ -1,0 +1,11 @@
+game/Library/
+game/Temp/
+game/Logs/
+game/obj/
+game/UserSettings/
+game/*.csproj
+game/*.sln
+Build/
+Shots/
+data/raw/
+*.log

@@ -28,6 +28,7 @@ namespace ShibuyaRush
         public Crowd(PedGraph graph, HumanoidRenderer renderer, int count, int seed)
         {
             g = graph; hr = renderer; a = new Agent[count]; next = new int[count]; rng = new System.Random(seed);
+            System.Array.Fill(cellHead, -1);
             var cum = new List<float>(); var ids = new List<int>(); float tot = 0;
             for (int i = 0; i < g.edges.Count; i++)
             {

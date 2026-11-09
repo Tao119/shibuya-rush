@@ -255,6 +255,27 @@ namespace ShibuyaRush
                 }
         }
 
+        /// <summary>検証用: 壁の線分をランダムに選び、中点と外向きの法線を返す。</summary>
+        public List<(Vector2 mid, Vector2 outward)> WallSamples(int count, int seed)
+        {
+            var rng = new System.Random(seed); var res = new List<(Vector2, Vector2)>();
+            for (int k = 0; k < count * 20 && res.Count < count; k++)
+            {
+                var p = footprints[rng.Next(footprints.Count)]; int i = rng.Next(p.Length); var a = p[i]; var b = p[(i + 1) % p.Length];
+                var d = b - a; float L = d.magnitude; if (L < 4f) continue; d /= L;
+                res.Add(((a + b) * 0.5f, new Vector2(d.y, -d.x)));   // 反時計回りなので、右手側が外
+            }
+            return res;
+        }
+
+        /// <summary>検証用: 余白や例外なしで、点が建物の内側にあるか。</summary>
+        public bool InsideBuilding(float x, float z)
+        {
+            if (!grid.TryGetValue(Key(Mathf.FloorToInt(x / Cell), Mathf.FloorToInt(z / Cell)), out var l)) return false;
+            foreach (int id in l) { var bx = boxes[id]; if (x < bx.x || x > bx.z || z < bx.y || z > bx.w) continue; if (Inside(footprints[id], x, z)) return true; }
+            return false;
+        }
+
         /// <summary>点(x,z)を半径rで膨らませた円が建物に当たるか。</summary>
         public bool Blocked(float x, float z, float r = 0.35f)
         {

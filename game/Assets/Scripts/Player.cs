@@ -10,7 +10,7 @@ namespace ShibuyaRush
     /// </summary>
     public class Player
     {
-        public const float WalkSpeed = 6.0f, DashSpeed = 10.5f, BodyR = 0.62f;
+        public const float WalkSpeed = 6.0f, DashSpeed = 10.5f, BodyR = 0.72f;
         public const float DashDur = 1.4f, DashCool = 4.5f, SlipDur = 0.9f, SlipCool = 7f, ShoveCool = 5f;
         public Vector2 pos; public float yaw; public float phase;
         public float speedNow, slowFactor = 1f, lift;
@@ -70,7 +70,7 @@ namespace ShibuyaRush
                 Move(n * overlap * 0.9f);                                        // 押し戻される
                 float closing = Vector2.Dot(vel, -n);
                 if (closing > 0f) vel += n * closing * 1.35f;                    // 進行方向の速度を打ち消し、少し跳ね返る
-                crowd.Shift(i, -n * overlap * 0.4f);
+                crowd.Shift(i, -n * overlap * 0.15f);
                 if (closing > 2.4f && bumpCd <= 0f)
                 {   // 勢いよくぶつかった: よろける
                     stagger = 0.32f; bumpCd = 0.3f; vel += n * 2.5f; crowd.Push(i, -n * 1.6f);

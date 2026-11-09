@@ -90,8 +90,37 @@ namespace ShibuyaRush
                 bool d2 = Traffic.Overlap(new Vector2(0, 2f), Vector2.zero, 180f, out var p4);   // 後ろ向きの車でも前後対称
                 Debug.Log($"[SelfTest] frontHit={a} push={p1} (期待 True, y>0) sideFar={b} (期待 False) sideNear={c2} push={p3} (期待 True, x>0) rev={d2} push={p4} (期待 True)");
             }
+            if (selfTest) RunCollisionTests();
             Debug.Log($"[Shibuya] roads={data.roads.Length} buildings={city.BuildingCount} nodes={graph.nodes.Count} main={graph.MainCount} edges={graph.edges.Count} hubs={graph.hubNodes.Length} crowd={crowd.Count} post={fx.PostOk}");
             if (autoplay) StartRace(poiIndex); else if (shotDir != null) { Directory.CreateDirectory(shotDir); }
+        }
+
+        /// <summary>壁・人・車にめり込まないことの自動検証。結果は [SelfTest] としてログに出る。</summary>
+        void RunCollisionTests()
+        {
+            // (1) 建物の壁: 外3mから壁に向かって3秒走り続け、建物の内側に入った件数を数える(高架や通路の例外の近くは除く)
+            var empty = new Crowd(graph, crowdHr, 0, 1); int tested = 0, penetrated = 0; float worst = 0f;
+            foreach (var (mid, outw) in city.WallSamples(400, 7))
+            {
+                var start = mid + outw * 3f; if (city.Blocked(start.x, start.y, 0.4f) || city.Exempt.Invoke(start.x, start.y) || city.Exempt.Invoke(mid.x, mid.y)) continue;
+                var pl = new Player(city, empty, graph, start); tested++;
+                for (int f = 0; f < 180; f++) pl.Tick(1f / 60f, -outw, f > 20 && f < 60 && false, false, false);
+                if (city.InsideBuilding(pl.pos.x, pl.pos.y)) { penetrated++; worst = Mathf.Max(worst, Vector2.Distance(pl.pos, mid)); }
+            }
+            Debug.Log($"[SelfTest] building: tested={tested} penetrated={penetrated} (期待 0)");
+            // (2) 人: 止めた人に向かって2秒走る。最も近づいた距離が体の半径(0.72m)近くで止まるか
+            crowd.Step(0.001f, new Vector2(99999, 99999), true, 0f); int ct = 0, cp = 0; float minAll = 9f;
+            var rng = new System.Random(11);
+            for (int k = 0; k < 150; k++)
+            {
+                var q = crowd.PosOf(rng.Next(crowd.Count)); if (city.Blocked(q.x, q.y, 0.4f)) continue;
+                float ang = (float)rng.NextDouble() * 6.283f; var dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)); var start = q + dir * 3f;
+                if (city.Blocked(start.x, start.y, 0.4f)) continue;
+                var pl = new Player(city, crowd, graph, start); pl.lift = 0f; float minD = 9f; ct++;
+                for (int f = 0; f < 120; f++) { pl.Tick(1f / 60f, -dir, false, false, false); minD = Mathf.Min(minD, Vector2.Distance(pl.pos, q)); }
+                minAll = Mathf.Min(minAll, minD); if (minD < 0.4f) cp++;
+            }
+            Debug.Log($"[SelfTest] crowd: tested={ct} closer_than_0.4m={cp} (期待 ほぼ0) minDistance={minAll:F2}");
         }
 
         void StartRace(int idx)
@@ -218,7 +247,7 @@ namespace ShibuyaRush
             float yawRate = Mathf.DeltaAngle(prevYaw, player.yaw) / Mathf.Max(rdt, 1e-3f); prevYaw = player.yaw;
             roll = Mathf.Lerp(roll, Mathf.Clamp(-yawRate * 0.035f, -5f, 5f) * Mathf.Clamp01(player.speedNow / 6f), 1f - Mathf.Exp(-6f * rdt));
             hitCd = Mathf.Max(0, hitCd - rdt); hitFlash = Mathf.Max(0, hitFlash - rdt);
-            if (traffic.Collide(player.pos, player.lift, out var push, out bool fast))
+            if (!player.Slipping && traffic.Collide(player.pos, player.lift, out var push, out bool fast))
             {
                 var np = player.pos + push; if (!city.Blocked(np.x, np.y)) player.Shove(push);
                 if (fast && hitCd <= 0 && state == GameState.Playing) { hitCd = 2f; hitFlash = 1.5f; hits++; raceT += 3f; player.Knock(push.normalized * 9f); }

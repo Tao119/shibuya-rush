@@ -149,7 +149,7 @@ namespace ShibuyaRush
             return lim;
         }
 
-        /// <summary>走行中(時速7km超)の車にプレイヤーが重なっていれば、押し出しベクトルを返す。</summary>
+        /// <summary>車(止まっていても)にプレイヤーが重なっていれば、押し出しベクトルを返す。走行中(時速7km超)なら fast=true。</summary>
         public bool Collide(Vector2 p, float lift, out Vector2 push, out bool fast)
         {
             push = Vector2.zero; fast = false;
@@ -158,7 +158,7 @@ namespace ShibuyaRush
                 if (cell.TryGetValue((cx + dx) * 7919 + (cz + dz), out var l))
                     foreach (int j in l)
                     {
-                        ref var k = ref c[j]; if (Mathf.Abs(k.lift - lift) > 1.5f || k.speed <= 2f) continue; // 停止・徐行中の車は通り抜けられる
+                        ref var k = ref c[j]; if (Mathf.Abs(k.lift - lift) > 1.5f) continue;
                         if (Overlap(p, k.pos, k.yaw, out push)) { fast = k.speed > 2f; return true; }
                     }
             return false;

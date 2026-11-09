@@ -144,7 +144,10 @@ namespace ShibuyaRush
             }
         }
 
-        /// <summary>(x,z)が歩行者グラフの道の上(幅の半分+余裕以内)か。建物の下をくぐる道の通過に使う。</summary>
+        /// <summary>
+        /// 建物の中を通れる場所か。駅のデッキや階段(高架)の下をくぐる所と、建物の中を抜ける細い歩行者通路(中心線から1m以内)だけ。
+        /// 車道や路地の幅に合わせて広く許すと、細い道に面した建物の壁をすり抜けられてしまう。
+        /// </summary>
         public bool OnWalkway(float x, float z)
         {
             if (!edgeGrid.TryGetValue(GK(Mathf.FloorToInt(x / GridCell), Mathf.FloorToInt(z / GridCell)), out var l)) return false;
@@ -153,7 +156,9 @@ namespace ShibuyaRush
             {
                 var e = edges[id]; var a = nodes[e.a]; var ab = nodes[e.b] - a;
                 float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f));
-                if ((p - (a + ab * t)).magnitude < Mathf.Max(e.width * 0.5f, 1.5f) + 0.8f) return true;
+                float d = (p - (a + ab * t)).magnitude;
+                bool deck = e.lA > 0.05f || e.lB > 0.05f;
+                if (deck ? d < Mathf.Max(e.width * 0.5f, 1.5f) + 0.5f : (!e.car && d < 1.0f)) return true;
             }
             return false;
         }

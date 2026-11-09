@@ -58,6 +58,7 @@ namespace ShibuyaRush
         {
             var rv = new List<Vector3>(); var ri = new List<int>();
             var wv = new List<Vector3>(); var wi = new List<int>();
+            var pv = new List<Vector3>(); var pi = new List<int>();
             foreach (var r in city.roads)
             {
                 if (r.tunnel) continue;
@@ -65,7 +66,7 @@ namespace ShibuyaRush
                 var v = footway ? wv : rv; var idx = footway ? wi : ri;
                 float y = footway ? 0.04f : (r.bridge ? 0.03f : 0.02f);
                 float half = r.w * 0.5f;
-                var hf = Heightfield.Current;
+                float Ltot = CityData.PolyLen(r.p), run = 0f, nextPillar = 9f;
                 for (int i = 0; i + 3 < r.p.Length; i += 2)
                 {
                     var a0 = new Vector2(r.p[i], r.p[i + 1]); var b0 = new Vector2(r.p[i + 2], r.p[i + 3]);
@@ -75,15 +76,35 @@ namespace ShibuyaRush
                     for (int k = 0; k < pieces; k++)
                     {
                         var a = Vector2.Lerp(a0, b0, (float)k / pieces); var b = Vector2.Lerp(a0, b0, (float)(k + 1) / pieces);
+                        float ya = y + CityData.Lift(r, run + L * k / pieces, Ltot), yb = y + CityData.Lift(r, run + L * (k + 1) / pieces, Ltot);
                         int s = v.Count;
-                        v.Add(Pt(a - n, y)); v.Add(Pt(a + n, y)); v.Add(Pt(b + n, y)); v.Add(Pt(b - n, y));
+                        v.Add(Pt(a - n, ya)); v.Add(Pt(a + n, ya)); v.Add(Pt(b + n, yb)); v.Add(Pt(b - n, yb));
                         idx.Add(s); idx.Add(s + 1); idx.Add(s + 2); idx.Add(s); idx.Add(s + 2); idx.Add(s + 3);
+                        if (r.lift > 0f && run + L * k / pieces >= nextPillar)
+                        {   // 高架の下に柱
+                            nextPillar += 18f; float lf = CityData.Lift(r, run + L * k / pieces, Ltot);
+                            if (lf > 2f) AddPillar(pv, pi, a, Heightfield.Current.Height(a.x, a.y), lf);
+                        }
                     }
-                    AddDisc(v, idx, b0, half, y);
+                    run += L;
+                    AddDisc(v, idx, b0, half, y + CityData.Lift(r, run, Ltot));
                 }
             }
             MeshObject(parent, "Roads", ToMesh(rv, ri), road);
             MeshObject(parent, "Walkways", ToMesh(wv, wi), walkway);
+            MeshObject(parent, "Pillars", ToMesh(pv, pi), walkway);
+        }
+
+        static void AddPillar(List<Vector3> v, List<int> t, Vector2 c, float groundY, float lift)
+        {
+            const float h = 0.45f; float y0 = groundY - 0.3f, y1 = groundY + lift - 0.2f;
+            var cs = new[] { new Vector2(-h, -h), new Vector2(h, -h), new Vector2(h, h), new Vector2(-h, h) };
+            for (int i = 0; i < 4; i++)
+            {
+                var a = c + cs[i]; var b = c + cs[(i + 1) % 4]; int q = v.Count;
+                v.Add(new Vector3(a.x, y0, a.y)); v.Add(new Vector3(b.x, y0, b.y)); v.Add(new Vector3(b.x, y1, b.y)); v.Add(new Vector3(a.x, y1, a.y));
+                t.Add(q); t.Add(q + 3); t.Add(q + 2); t.Add(q); t.Add(q + 2); t.Add(q + 1);
+            }
         }
 
         static Vector3 Pt(Vector2 p, float y) => new Vector3(p.x, Heightfield.Current.Height(p.x, p.y) + y, p.y);

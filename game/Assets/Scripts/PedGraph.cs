@@ -6,9 +6,10 @@ namespace ShibuyaRush
     /// <summary>道路中心線から作る歩行者グラフ。人混みの経路(ハブへの最短経路表)とBot用の経路探索に使う。</summary>
     public class PedGraph
     {
-        public struct Edge { public int a, b; public float len, width; public Vector2 dir; public int sig; }  // sig: 0=信号なし、1以上=信号つき横断歩道(位相オフセット秒+1)
+        public struct Edge { public int a, b; public float len, width; public Vector2 dir; public int sig; public float lA, lB; }  // sig: 0=信号なし、1以上=信号つき横断歩道(位相オフセット秒+1)
         public readonly List<Vector2> nodes = new List<Vector2>();
         public readonly List<Edge> edges = new List<Edge>();
+        public readonly List<float> nodeLift = new List<float>();
         public readonly List<List<int>> adj = new List<List<int>>(); // node -> edge ids
         readonly Dictionary<long, int> keyToNode = new Dictionary<long, int>();
         public bool[] inMain;                       // 最大連結成分に属するノード
@@ -26,10 +27,10 @@ namespace ShibuyaRush
         {
             long k = K(p);
             if (keyToNode.TryGetValue(k, out int id)) return id;
-            id = nodes.Count; nodes.Add(p); adj.Add(new List<int>()); keyToNode[k] = id; return id;
+            id = nodes.Count; nodes.Add(p); nodeLift.Add(0f); adj.Add(new List<int>()); keyToNode[k] = id; return id;
         }
 
-        void AddEdge(int na, int nb, float width, bool signal = false)
+        void AddEdge(int na, int nb, float width, bool signal = false, float lA = 0f, float lB = 0f)
         {
             var a = nodes[na]; var b = nodes[nb]; float len = (b - a).magnitude;
             int id = edges.Count;
@@ -39,7 +40,8 @@ namespace ShibuyaRush
                 var m = (a + b) * 0.5f; int cx = Mathf.FloorToInt(m.x / 80f), cz = Mathf.FloorToInt(m.y / 80f);
                 sig = 1 + (int)((uint)((cx * 73856093) ^ (cz * 19349663)) % (uint)SignalCycle);
             }
-            edges.Add(new Edge { a = na, b = nb, len = len, width = width, dir = len > 1e-4f ? (b - a) / len : Vector2.up, sig = sig });
+            edges.Add(new Edge { a = na, b = nb, len = len, width = width, dir = len > 1e-4f ? (b - a) / len : Vector2.up, sig = sig, lA = lA, lB = lB });
+            nodeLift[na] = Mathf.Max(nodeLift[na], lA); nodeLift[nb] = Mathf.Max(nodeLift[nb], lB);
             adj[na].Add(id); adj[nb].Add(id);
         }
 
@@ -48,13 +50,24 @@ namespace ShibuyaRush
             foreach (var r in city.roads)
             {
                 if (!r.walk || r.tunnel || r.cls == "steps") continue;
+                float L = CityData.PolyLen(r.p), run = 0f;
                 for (int i = 0; i + 3 < r.p.Length; i += 2)
                 {
                     var a = new Vector2(r.p[i], r.p[i + 1]); var b = new Vector2(r.p[i + 2], r.p[i + 3]);
-                    if ((b - a).magnitude < 0.5f) continue;
+                    float seg = (b - a).magnitude; float s0 = run; run += seg;
+                    if (seg < 0.5f) continue;
                     int na = Node(a), nb = Node(b); if (na == nb) continue;
-                    AddEdge(na, nb, r.w, r.sig == 1);
+                    AddEdge(na, nb, r.w, r.sig == 1, CityData.Lift(r, s0, L), CityData.Lift(r, run, L));
                 }
+            }
+            // 階段: 両端がすでにグラフにあるものだけ、両端の高さをつなぐ斜面として加える
+            foreach (var r in city.roads)
+            {
+                if (r.cls != "steps" || r.tunnel || r.p.Length < 4) continue;
+                if (!keyToNode.TryGetValue(K(new Vector2(r.p[0], r.p[1])), out int sa)) continue;
+                if (!keyToNode.TryGetValue(K(new Vector2(r.p[r.p.Length - 2], r.p[r.p.Length - 1])), out int sb)) continue;
+                if (sa == sb) continue;
+                AddEdge(sa, sb, Mathf.Max(r.w, 2.5f), false, nodeLift[sa], nodeLift[sb]);
             }
             BridgeNearNodes(2.5f);
             FindMainComponent();
@@ -77,7 +90,7 @@ namespace ShibuyaRush
                 for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++)
                     if (g.TryGetValue(GK(cx + dx, cz + dz), out var l))
                         foreach (int j in l)
-                            if (j > i && (nodes[i] - nodes[j]).sqrMagnitude < r * r && !Connected(i, j)) AddEdge(i, j, 3f);
+                            if (j > i && (nodes[i] - nodes[j]).sqrMagnitude < r * r && !Connected(i, j) && Mathf.Abs(nodeLift[i] - nodeLift[j]) < 1f) AddEdge(i, j, 3f, false, nodeLift[i], nodeLift[j]);
             }
         }
         bool Connected(int i, int j) { foreach (int e in adj[i]) if (Other(e, i) == j) return true; return false; }
@@ -131,6 +144,24 @@ namespace ShibuyaRush
                 if ((p - (a + ab * t)).magnitude < Mathf.Max(e.width * 0.5f, 1.5f) + 0.8f) return true;
             }
             return false;
+        }
+
+        /// <summary>歩ける高さ。(x,z)付近の道のうち、今の高さcurから1.2m以内で登れる最も高い面(なければ地面0)。</summary>
+        public float ReachableLift(float x, float z, float cur)
+        {
+            float best = 0f;
+            if (!edgeGrid.TryGetValue(GK(Mathf.FloorToInt(x / GridCell), Mathf.FloorToInt(z / GridCell)), out var l)) return best;
+            var p = new Vector2(x, z);
+            foreach (int id in l)
+            {
+                var e = edges[id]; if (e.lA < 0.05f && e.lB < 0.05f) continue;
+                var a = nodes[e.a]; var ab = nodes[e.b] - a;
+                float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f));
+                if ((p - (a + ab * t)).magnitude > Mathf.Max(e.width * 0.5f, 1.5f) + 0.3f) continue;
+                float lv = Mathf.Lerp(e.lA, e.lB, t);
+                if (lv <= cur + 1.2f && lv > best) best = lv;
+            }
+            return best;
         }
 
         public int Other(int edge, int node) => edges[edge].a == node ? edges[edge].b : edges[edge].a;

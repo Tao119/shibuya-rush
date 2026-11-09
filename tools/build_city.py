@@ -26,6 +26,13 @@ def num(v):
     try: return float(str(v).split()[0].replace("m", ""))
     except Exception: return None
 
+# 高架(橋・デッキ): bridge=yes または layer>=1 の歩行者・車道。両端が他の高架と接していれば高さを保ち、そうでなければ地面へ降りる
+LAYER_H = 5.2
+def lift_of(t):
+    ly = num(t.get("layer")) or 0
+    if t.get("bridge") in ("yes", "viaduct", "movable") and ly < 1: ly = 1
+    if ly < 1 or t.get("tunnel") == "yes": return 0.0
+    return LAYER_H * min(ly, 2)
 roads = []
 for e in json.load(open(RAW / "roads.json"))["elements"]:
     g = e.get("geometry") or []
@@ -33,7 +40,7 @@ for e in json.load(open(RAW / "roads.json"))["elements"]:
     t = e["tags"]; hw = t["highway"].replace("_link", "")
     if t.get("area") == "yes": continue
     w = num(t.get("width")) or WIDTH.get(hw, 5)
-    roads.append({"cls": hw, "name": t.get("name", ""), "w": w, "walk": hw not in ("motorway", "trunk"), "sig": 1 if t.get("crossing") == "traffic_signals" else 0,
+    roads.append({"cls": hw, "name": t.get("name", ""), "w": w, "walk": hw not in ("motorway", "trunk"), "sig": 1 if t.get("crossing") == "traffic_signals" else 0, "lift": lift_of(t) if hw != "steps" else 0.0,
                   "bridge": t.get("bridge") == "yes" or t.get("layer") in ("1", "2"),
                   "tunnel": t.get("tunnel") == "yes" or (num(t.get("layer")) or 0) < 0,
                   "p": flat(g)})
@@ -73,6 +80,17 @@ def plateau_height(flatpts):
     return None
 
 stat = {"plateau": 0, "osm": 0, "default": 0}
+ends = {}
+for r in roads:
+    if r["lift"] > 0:
+        for k in (0, len(r["p"]) - 2):
+            ends[(r["p"][k], r["p"][k + 1])] = ends.get((r["p"][k], r["p"][k + 1]), 0) + 1
+for r in roads:
+    n = len(r["p"])
+    r["l0"] = r["lift"] if ends.get((r["p"][0], r["p"][1]), 0) >= 2 else 0.0
+    r["l1"] = r["lift"] if ends.get((r["p"][n - 2], r["p"][n - 1]), 0) >= 2 else 0.0
+print("lifted roads:", sum(1 for r in roads if r["lift"] > 0))
+
 buildings = []
 for e in json.load(open(RAW / "buildings.json"))["elements"]:
     rings = []

@@ -15,11 +15,11 @@ namespace ShibuyaRush
         CityData data; CityBuilder city; PedGraph graph; Crowd crowd; Player player;
         HumanoidRenderer crowdHr, playerHr; Camera cam, miniCam; RenderTexture miniRt;
         GameState state = GameState.Menu; float stateT, raceT;
-        int poiIndex; Vector2 goal; string goalName = ""; GameObject beam;
+        int poiIndex; Vector2 goal; float goalLift; string goalName = ""; GameObject beam;
         float camYaw; int crowdCount = 30000; float hb;
         GUIStyle big, mid, small, box;
         // Bot / 計測
-        bool autoplay, noSkills; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT;
+        bool autoplay, noSkills; Vector2 startPos; float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT;
         readonly List<float> frameMs = new List<float>(); float nextShot; int shotNo; string resultNote = "";
 
         Material M(string n) => Resources.Load<Material>("Mats/" + n);
@@ -31,6 +31,9 @@ namespace ShibuyaRush
             {
                 if (args[i] == "-autoplay" && i + 1 < args.Length) { autoplay = true; poiIndex = int.Parse(args[i + 1]); }
                 if (args[i] == "-noskills") noSkills = true;
+                if (args[i] == "-camback" && i + 1 < args.Length) camBack = float.Parse(args[i + 1]);
+                if (args[i] == "-camup" && i + 1 < args.Length) camUp = float.Parse(args[i + 1]);
+                if (args[i] == "-start" && i + 2 < args.Length) startPos = new Vector2(float.Parse(args[i + 1]), float.Parse(args[i + 2]));
                 if (args[i] == "-shotdir" && i + 1 < args.Length) shotDir = args[i + 1];
                 if (args[i] == "-crowd" && i + 1 < args.Length) crowdCount = int.Parse(args[i + 1]);
                 if (args[i] == "-quitafter" && i + 1 < args.Length) quitAfter = float.Parse(args[i + 1]);
@@ -56,7 +59,7 @@ namespace ShibuyaRush
             crowdHr = new HumanoidRenderer(tints, M("Pants"), M("Skin"));
             playerHr = new HumanoidRenderer(new[] { M("PlayerTint") }, M("PlayerPants"), M("Skin"));
             crowd = new Crowd(graph, crowdHr, crowdCount, 12345);
-            player = new Player(city, crowd, Vector2.zero) { yaw = 0 };
+            player = new Player(city, crowd, graph, Vector2.zero) { yaw = 0 };
             beam = GameObject.CreatePrimitive(PrimitiveType.Cylinder); Destroy(beam.GetComponent<Collider>());
             beam.GetComponent<MeshRenderer>().sharedMaterial = M("Goal"); beam.SetActive(false);
             miniRt = new RenderTexture(256, 256, 16); var mg = new GameObject("MiniCam");
@@ -71,9 +74,9 @@ namespace ShibuyaRush
         void StartRace(int idx)
         {
             poiIndex = idx; var poi = data.pois[idx]; goalName = poi.name;
-            goal = graph.nodes[graph.NearestNode(new Vector2(poi.x, poi.z))];
-            player.pos = Vector2.zero; player.yaw = 0; raceT = 0; state = GameState.Countdown; stateT = 0;
-            beam.SetActive(true); beam.transform.position = new Vector3(goal.x, Heightfield.Current.Height(goal.x, goal.y) + 40, goal.y); beam.transform.localScale = new Vector3(2.4f, 40f, 2.4f);
+            int gn = graph.NearestNode(new Vector2(poi.x, poi.z)); goal = graph.nodes[gn]; goalLift = graph.nodeLift[gn];
+            player.pos = startPos; player.yaw = 0; raceT = 0; player.lift = graph.nodeLift[graph.NearestNode(startPos)]; state = GameState.Countdown; stateT = 0;
+            beam.SetActive(true); beam.transform.position = new Vector3(goal.x, Heightfield.Current.Height(goal.x, goal.y) + goalLift + 40, goal.y); beam.transform.localScale = new Vector3(2.4f, 40f, 2.4f);
             if (autoplay) { botPath = graph.Path(player.pos, goal); botIdx = 0; Debug.Log($"[Bot] route nodes={botPath.Count} dest={goalName}"); if (shotDir != null) Directory.CreateDirectory(shotDir); }
             Cursor.lockState = autoplay ? CursorLockMode.None : CursorLockMode.Locked;
         }
@@ -123,7 +126,7 @@ namespace ShibuyaRush
             {
                 wish = autoplay ? BotWish(out dash, out slip, out shove) : ReadWish(out dash, out slip, out shove);
                 raceT += dt;
-                if ((player.pos - goal).magnitude < GoalRadius)
+                if ((player.pos - goal).magnitude < GoalRadius && Mathf.Abs(player.lift - goalLift) < 2.5f)
                 {
                     state = GameState.Finished; stateT = 0; Cursor.lockState = CursorLockMode.None;
                     string key = "best_" + data.pois[poiIndex].id; float best = PlayerPrefs.GetFloat(key, 9999f);
@@ -145,13 +148,14 @@ namespace ShibuyaRush
             if (Input.GetKeyDown(KeyCode.Escape)) Cursor.lockState = CursorLockMode.None;
 
             // 人混みはメニューでも動かす
-            crowd.Step(dt, player.pos, !player.Slipping);
+            crowd.Step(dt, player.pos, !player.Slipping, player.lift);
             player.Tick(dt, wish, dash, slip, shove);
             if (autoplay && state == GameState.Playing) camYaw = Mathf.LerpAngle(camYaw, player.yaw, 2f * dt);
             UpdateCamera(dt);
             crowd.Render(cam.transform.position, cam.transform.forward);
             float lean = Mathf.Clamp(player.speedNow * 1.6f, 0, 18f);
-            playerHr.Add(new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y), player.pos.y), player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.05f, lean);
+            playerHr.Add(new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y), player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.05f, lean);
+            maxLift = Mathf.Max(maxLift, player.lift);
             crowdHr.Flush(); playerHr.Flush();
             beam.transform.Rotate(0, 60 * dt, 0);
 
@@ -177,16 +181,16 @@ namespace ShibuyaRush
             float p95 = n > 0 ? frameMs[Mathf.Min(n - 1, (int)(n * 0.95f))] : 0, worst = n > 0 ? frameMs[n - 1] : 0;
             var sb = new StringBuilder();
             sb.Append($"{{\"dest\":\"{goalName}\",\"finished\":{(state == GameState.Finished ? "true" : "false")},\"time\":{raceT:F2},");
-            sb.Append($"\"frames\":{n},\"avgMs\":{avg:F2},\"avgFps\":{(avg > 0 ? 1000f / avg : 0):F1},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"crowd\":{crowd.Count},\"trips\":{crowd.Trips},\"waitingEnd\":{crowd.Waiting},\"buildings\":{city.BuildingCount}}}");
+            sb.Append($"\"frames\":{n},\"avgMs\":{avg:F2},\"avgFps\":{(avg > 0 ? 1000f / avg : 0):F1},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"crowd\":{crowd.Count},\"trips\":{crowd.Trips},\"waitingEnd\":{crowd.Waiting},\"onDeck\":{crowd.OnDeck},\"maxPlayerLift\":{maxLift:F1},\"buildings\":{city.BuildingCount}}}");
             if (shotDir != null) File.WriteAllText(Path.Combine(shotDir, "result.json"), sb.ToString());
             Debug.Log("[Perf] " + sb);
         }
 
         void UpdateCamera(float dt)
         {
-            var p = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y), player.pos.y);
+            var p = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
             float y = camYaw * Mathf.Deg2Rad; var back = new Vector3(-Mathf.Sin(y), 0, -Mathf.Cos(y));
-            var want = p + back * 6.5f + Vector3.up * 4.2f;
+            var want = p + back * camBack + Vector3.up * camUp;
             cam.transform.position = Vector3.Lerp(cam.transform.position, want, 1f - Mathf.Exp(-14f * dt));
             cam.transform.rotation = Quaternion.LookRotation((p + Vector3.up * 1.3f + new Vector3(Mathf.Sin(y), 0, Mathf.Cos(y)) * 2f) - cam.transform.position);
             miniCam.transform.position = new Vector3(player.pos.x, 300, player.pos.y);

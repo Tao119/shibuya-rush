@@ -8,7 +8,8 @@ namespace ShibuyaRush
     {
         public const float WalkSpeed = 6.0f, DashSpeed = 10.5f;
         public Vector2 pos; public float yaw; public float phase;
-        public float speedNow, slowFactor = 1f;
+        public float speedNow, slowFactor = 1f, lift;
+        readonly PedGraph graph;
         public float dashT, slipT, shoveFx;                       // 発動中の残り秒
         public float dashCd, slipCd, shoveCd;                     // クールダウン残り秒
         public const float DashDur = 1.4f, DashCool = 4.5f, SlipDur = 0.9f, SlipCool = 7f, ShoveCool = 5f;
@@ -16,7 +17,7 @@ namespace ShibuyaRush
         readonly CityBuilder city; readonly Crowd crowd; readonly List<int> hits = new List<int>();
         Vector2 vel;
 
-        public Player(CityBuilder c, Crowd cr, Vector2 start) { city = c; crowd = cr; pos = start; }
+        public Player(CityBuilder c, Crowd cr, PedGraph g, Vector2 start) { city = c; crowd = cr; graph = g; pos = start; }
 
         public void Tick(float dt, Vector2 wish, bool dash, bool slip, bool shove)
         {
@@ -35,6 +36,7 @@ namespace ShibuyaRush
             var fwd = wish.sqrMagnitude > 0.01f ? wish.normalized : new Vector2(Mathf.Sin(yaw * Mathf.Deg2Rad), Mathf.Cos(yaw * Mathf.Deg2Rad));
             foreach (int i in hits)
             {
+                if (Mathf.Abs(crowd.LiftOf(i) - lift) > 1.5f) continue;
                 var d = crowd.PosOf(i) - pos; float dist = d.magnitude;
                 if (dist < 1e-3f) continue;
                 float dot = Vector2.Dot(d / dist, fwd);
@@ -51,6 +53,8 @@ namespace ShibuyaRush
             var want = wish * target * slowFactor;
             vel = Vector2.Lerp(vel, want, 1f - Mathf.Exp(-10f * dt));
             Move(vel * dt);
+            float tgt = graph.ReachableLift(pos.x, pos.y, lift);
+            lift = Mathf.MoveTowards(lift, tgt, (tgt > lift ? 8f : 14f) * dt);
             speedNow = vel.magnitude;
             if (speedNow > 0.2f) yaw = Mathf.LerpAngle(yaw, Mathf.Atan2(vel.x, vel.y) * Mathf.Rad2Deg, 14f * dt);
             phase += speedNow * dt * 2.6f;
@@ -71,6 +75,7 @@ namespace ShibuyaRush
             crowd.Query(pos, 4.5f, hits);
             foreach (int i in hits)
             {
+                if (Mathf.Abs(crowd.LiftOf(i) - lift) > 1.5f) continue;
                 var d = crowd.PosOf(i) - pos; float dist = d.magnitude; if (dist < 1e-3f) continue;
                 if (Vector2.Dot(d / dist, fwd) < 0.45f) continue;
                 var side = new Vector2(-fwd.y, fwd.x) * Mathf.Sign(Vector2.Dot(d, new Vector2(-fwd.y, fwd.x)) + 0.01f);

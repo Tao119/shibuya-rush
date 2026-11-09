@@ -62,7 +62,7 @@ public static class ProjectSetup
     {
         Directory.CreateDirectory(Mats); Directory.CreateDirectory("Assets/Scenes");
         SetupUrp(); PlayerSettings.colorSpace = ColorSpace.Linear;
-        Mat("Ground", new Color(0.60f, 0.63f, 0.58f)); Mat("Road", new Color(0.27f, 0.28f, 0.31f)); Mat("Walkway", new Color(0.74f, 0.71f, 0.65f));
+        Mat("Ground", new Color(0.60f, 0.63f, 0.58f)); Mat("Road", new Color(0.27f, 0.28f, 0.31f)).SetFloat("_Cull", 0f); Mat("Walkway", new Color(0.74f, 0.71f, 0.65f)).SetFloat("_Cull", 0f);
         Color[] b = { new Color(.88f,.86f,.82f), new Color(.76f,.81f,.88f), new Color(.90f,.79f,.76f), new Color(.78f,.88f,.81f), new Color(.92f,.89f,.74f), new Color(.82f,.77f,.88f) };
         var facade = MakeFacade();
         for (int i = 0; i < b.Length; i++) { var bm = Mat("Bld" + i, b[i], 0.15f); bm.SetTexture("_BaseMap", facade); }

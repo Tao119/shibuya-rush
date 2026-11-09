@@ -13,13 +13,14 @@ namespace ShibuyaRush
         {
             public int edge, toNode, hub, pending; public float t;     // 辺上の位置(fromNodeからの距離)
             public float speed, lateral, phase, scale; public int tint;
-            public Vector2 pos, off, vel; public float yaw;
+            public Vector2 pos, off, vel; public float yaw, lift;
         }
         readonly PedGraph g; readonly Agent[] a; readonly HumanoidRenderer hr;
         readonly int[] cellHead = new int[1 << 17]; readonly int[] next;
         System.Random rng;
         public int Count => a.Length;
         public float Clock;                                   // 信号の時刻
+        public int OnDeck { get { int n = 0; foreach (var x in a) if (x.lift > 1f) n++; return n; } }
         public int Waiting { get; private set; }               // 赤信号で待っている人数
         public int Trips { get; private set; }               // 目的地に着いた回数(動作確認用)
         public float NearDist = 55f, FarDist = 230f;
@@ -86,6 +87,7 @@ namespace ShibuyaRush
                     if ((a[i].pos - c).sqrMagnitude <= r2) res.Add(i);
         }
         public Vector2 PosOf(int i) => a[i].pos;
+        public float LiftOf(int i) => a[i].lift;
         public void Push(int i, Vector2 impulse) { a[i].vel += impulse; }
         public void Shift(int i, Vector2 d) { a[i].off += d; }
 
@@ -109,7 +111,7 @@ namespace ShibuyaRush
             float half = Mathf.Max(0.3f, (ne.width - 1f) * 0.5f); ag.lateral = Mathf.Clamp(ag.lateral, -half, half);
         }
 
-        public void Step(float dt, Vector2 player, bool playerSolid)
+        public void Step(float dt, Vector2 player, bool playerSolid, float playerLift = 0f)
         {
             Rebuild(); Clock += dt; int waiting = 0;
             for (int i = 0; i < a.Length; i++)
@@ -128,8 +130,9 @@ namespace ShibuyaRush
                 ag.off += ag.vel * dt; ag.vel *= Mathf.Exp(-4f * dt);
                 ag.off *= Mathf.Exp(-1.6f * dt);
                 if (ag.off.sqrMagnitude > 9f) ag.off = ag.off.normalized * 3f;
+                { var ee = g.edges[ag.edge]; float fr = Mathf.Clamp01(ag.t / Mathf.Max(ee.len, 0.01f)); ag.lift = ag.toNode == ee.b ? Mathf.Lerp(ee.lA, ee.lB, fr) : Mathf.Lerp(ee.lB, ee.lA, fr); }
                 var d = ag.pos - player;
-                if (playerSolid && d.sqrMagnitude < 0.49f)
+                if (playerSolid && d.sqrMagnitude < 0.49f && Mathf.Abs(ag.lift - playerLift) < 1.5f)
                 {
                     float dd = d.magnitude; if (dd > 1e-3f) ag.off += d / dd * (0.7f - dd) * 18f * dt;
                 }
@@ -165,7 +168,7 @@ namespace ShibuyaRush
                 var d = a[i].pos - c; float d2 = d.sqrMagnitude;
                 if (d2 > far2) continue;
                 if (d2 > 100f && Vector2.Dot(d, f) < 0.25f * Mathf.Sqrt(d2)) continue; // 視野外(約±75度の外)
-                var p = new Vector3(a[i].pos.x, hf.Height(a[i].pos.x, a[i].pos.y), a[i].pos.y);
+                var p = new Vector3(a[i].pos.x, hf.Height(a[i].pos.x, a[i].pos.y) + a[i].lift, a[i].pos.y);
                 if (d2 < near2) hr.Add(p, a[i].yaw, a[i].phase, 1f, a[i].tint, a[i].scale);
                 else hr.AddFar(p, a[i].tint, a[i].scale);
             }

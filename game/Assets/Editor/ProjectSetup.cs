@@ -22,6 +22,21 @@ public static class ProjectSetup
         EditorUtility.SetDirty(m); return m;
     }
 
+    /// <summary>透明(または加算)描画にするURPマテリアル設定。</summary>
+    static Material Transparent(string name, string shader, Color c, bool additive)
+    {
+        string path = $"{Mats}/{name}.mat";
+        var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (m == null) { m = new Material(Shader.Find(shader)); AssetDatabase.CreateAsset(m, path); }
+        m.SetColor("_BaseColor", c); m.enableInstancing = true;
+        m.SetFloat("_Surface", 1f); m.SetFloat("_Blend", additive ? 2f : 0f);
+        m.SetFloat("_SrcBlend", 5f); m.SetFloat("_DstBlend", additive ? 1f : 10f); m.SetFloat("_ZWrite", 0f); m.SetFloat("_Cull", 0f);
+        m.SetOverrideTag("RenderType", "Transparent"); m.renderQueue = 3000;
+        m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT"); m.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        m.SetShaderPassEnabled("ShadowCaster", false);
+        EditorUtility.SetDirty(m); return m;
+    }
+
     /// <summary>窓つきの外壁テクスチャ(壁は白、窓は暗い青。素材色で壁の色が決まる)。</summary>
     static Texture2D MakeFacade()
     {
@@ -72,6 +87,10 @@ public static class ProjectSetup
         Color[] cc = { new Color(.92f,.92f,.94f), new Color(.1f,.1f,.12f), new Color(.7f,.1f,.12f), new Color(.15f,.3f,.65f), new Color(.75f,.75f,.78f), new Color(.95f,.8f,.2f) };
         for (int i = 0; i < cc.Length; i++) Mat("Car" + i, cc[i], 0.45f);
         Mat("CarCabin", new Color(.12f, .16f, .22f), 0.7f);
+        Transparent("GhostA", "Universal Render Pipeline/Unlit", new Color(0.45f, 0.85f, 1f, 0.55f), false);
+        Transparent("GhostB", "Universal Render Pipeline/Unlit", new Color(0.7f, 0.6f, 1f, 0.34f), false);
+        Transparent("GhostC", "Universal Render Pipeline/Unlit", new Color(0.9f, 0.7f, 1f, 0.18f), false);
+        Transparent("FxAdd", "Universal Render Pipeline/Particles/Unlit", Color.white, true);
         Mat("Pants", new Color(.2f, .22f, .32f)); Mat("PlayerPants", new Color(.08f, .08f, .1f)); Mat("Skin", new Color(.96f, .78f, .64f));
         Mat("PlayerTint", new Color(1f, .42f, .08f)); Mat("Goal", new Color(1f, .85f, .2f), 0.2f, new Color(2.5f, 1.8f, .3f));
         AssetDatabase.SaveAssets();

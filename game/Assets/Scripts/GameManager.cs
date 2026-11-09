@@ -16,10 +16,11 @@ namespace ShibuyaRush
         HumanoidRenderer crowdHr, playerHr; Camera cam, miniCam; RenderTexture miniRt;
         GameState state = GameState.Menu; float stateT, raceT;
         int poiIndex; Vector2 goal; float goalLift; string goalName = ""; GameObject beam;
-        float camYaw; int crowdCount = 30000; float hb;
+        float camYaw; int crowdCount = 50000; float hb;
+        SkillFx fx; GameObject arrow3d; Texture2D arrowTex, vigTex; Material arrowMat;
         GUIStyle big, mid, small, box;
         // Bot / 計測
-        bool autoplay, noSkills, selfTest; Vector2 startPos; float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT;
+        bool autoplay, noSkills, selfTest, fxTest; bool f1, f2, f3; float shotAt; string shotTag; Vector2 startPos; float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT;
         readonly List<float> frameMs = new List<float>(); float nextShot; int shotNo; string resultNote = "";
 
         Material M(string n) => Resources.Load<Material>("Mats/" + n);
@@ -32,6 +33,7 @@ namespace ShibuyaRush
                 if (args[i] == "-autoplay" && i + 1 < args.Length) { autoplay = true; poiIndex = int.Parse(args[i + 1]); }
                 if (args[i] == "-noskills") noSkills = true;
                 if (args[i] == "-selftest") selfTest = true;
+                if (args[i] == "-fxtest") fxTest = true;
                 if (args[i] == "-cars" && i + 1 < args.Length) carCount = int.Parse(args[i + 1]);
                 if (args[i] == "-camback" && i + 1 < args.Length) camBack = float.Parse(args[i + 1]);
                 if (args[i] == "-camup" && i + 1 < args.Length) camUp = float.Parse(args[i + 1]);
@@ -65,6 +67,10 @@ namespace ShibuyaRush
             var carMats = new Material[6]; for (int i = 0; i < carMats.Length; i++) carMats[i] = M("Car" + i);
             traffic = new Traffic(carGraph, graph, crowd, carCount, carMats, M("CarCabin"));
             player = new Player(city, crowd, graph, Vector2.zero) { yaw = 0 };
+            fx = new SkillFx(this, cam, M("FxAdd"), new[] { M("GhostA"), M("GhostB"), M("GhostC") }, M("Skin"));
+            arrow3d = new GameObject("GoalArrow"); arrow3d.AddComponent<MeshFilter>().sharedMesh = ArrowMesh();
+            arrow3d.AddComponent<MeshRenderer>().sharedMaterial = M("Goal"); arrow3d.SetActive(false);
+            arrowTex = MakeArrowTex(); vigTex = MakeVignetteTex();
             beam = GameObject.CreatePrimitive(PrimitiveType.Cylinder); Destroy(beam.GetComponent<Collider>());
             beam.GetComponent<MeshRenderer>().sharedMaterial = M("Goal"); beam.SetActive(false);
             miniRt = new RenderTexture(256, 256, 16); var mg = new GameObject("MiniCam");
@@ -80,7 +86,7 @@ namespace ShibuyaRush
                 bool d2 = Traffic.Overlap(new Vector2(0, 2f), Vector2.zero, 180f, out var p4);   // 後ろ向きの車でも前後対称
                 Debug.Log($"[SelfTest] frontHit={a} push={p1} (期待 True, y>0) sideFar={b} (期待 False) sideNear={c2} push={p3} (期待 True, x>0) rev={d2} push={p4} (期待 True)");
             }
-            Debug.Log($"[Shibuya] roads={data.roads.Length} buildings={city.BuildingCount} nodes={graph.nodes.Count} main={graph.MainCount} edges={graph.edges.Count} hubs={graph.hubNodes.Length} crowd={crowd.Count}");
+            Debug.Log($"[Shibuya] roads={data.roads.Length} buildings={city.BuildingCount} nodes={graph.nodes.Count} main={graph.MainCount} edges={graph.edges.Count} hubs={graph.hubNodes.Length} crowd={crowd.Count} post={fx.PostOk}");
             if (autoplay) StartRace(poiIndex); else if (shotDir != null) { Directory.CreateDirectory(shotDir); }
         }
 
@@ -106,21 +112,29 @@ namespace ShibuyaRush
 
         Vector2 BotWish(out bool dash, out bool slip, out bool shove)
         {
+            float udt = Time.unscaledDeltaTime;
             dash = slip = shove = false;
             if (botPath == null || botPath.Count == 0) return Vector2.zero;
             while (botIdx < botPath.Count - 1 && (botPath[botIdx] - player.pos).sqrMagnitude < 2.5f * 2.5f) botIdx++;
             var to = botPath[botIdx] - player.pos;
-            if (player.speedNow < 1.2f) stuckT += Time.deltaTime; else stuckT = 0;
-            if (player.slowFactor < 0.75f && player.dashCd <= 0) dash = true;
+            if (player.speedNow < 1.2f) stuckT += udt; else stuckT = 0;
+            if ((player.slowFactor < 0.6f || player.stagger > 0f) && player.dashCd <= 0) dash = true;
             if (stuckT > 0.6f && player.slipCd <= 0) { slip = true; stuckT = 0; }
             if (stuckT > 0.3f && player.shoveCd <= 0) shove = true;
             if (noSkills) dash = slip = shove = false;
+            if (fxTest)
+            {   // 演出の確認用: 時刻で3つのスキルを順に発動し、直後にスクリーンショットを撮る
+                dash = slip = shove = false;
+                if (raceT > 2.5f && !f1) { f1 = true; shove = true; shotAt = Time.unscaledTime + 0.18f; shotTag = "fx_shove"; }
+                if (raceT > 5.5f && !f2) { f2 = true; dash = true; shotAt = Time.unscaledTime + 0.35f; shotTag = "fx_dash"; }
+                if (raceT > 9.5f && !f3) { f3 = true; slip = true; shotAt = Time.unscaledTime + 0.45f; shotTag = "fx_slip"; }
+            }
             return to.normalized;
         }
 
         void Update()
         {
-            float dt = Mathf.Min(Time.deltaTime, 0.05f);
+            float dt = Mathf.Min(Time.deltaTime, 0.05f), rdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             if (state == GameState.Playing || state == GameState.Countdown) frameMs.Add(Time.unscaledDeltaTime * 1000f);
             stateT += dt;
             hb += Time.unscaledDeltaTime; if (autoplay && hb > 5f) { hb = 0; Debug.Log($"[HB] t={Time.timeSinceLevelLoad:F0} wait={crowd.Waiting} state={state} race={raceT:F1} pos={player.pos} fps={1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f):F0}"); }
@@ -138,7 +152,7 @@ namespace ShibuyaRush
             else if (state == GameState.Playing)
             {
                 wish = autoplay ? BotWish(out dash, out slip, out shove) : ReadWish(out dash, out slip, out shove);
-                raceT += dt;
+                if (!fx.ClockFrozen) raceT += dt;
                 if ((player.pos - goal).magnitude < GoalRadius && Mathf.Abs(player.lift - goalLift) < 2.5f)
                 {
                     state = GameState.Finished; stateT = 0; Cursor.lockState = CursorLockMode.None;
@@ -163,15 +177,23 @@ namespace ShibuyaRush
             // 人混みはメニューでも動かす
             crowd.Step(dt, player.pos, !player.Slipping, player.lift);
             traffic.Step(dt);
-            player.Tick(dt, wish, dash, slip, shove);
-            hitCd = Mathf.Max(0, hitCd - dt); hitFlash = Mathf.Max(0, hitFlash - dt);
+            player.Tick(rdt, wish, dash, slip, shove);
+            var pw = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
+            var pdir = new Vector2(Mathf.Sin(player.yaw * Mathf.Deg2Rad), Mathf.Cos(player.yaw * Mathf.Deg2Rad));
+            if (player.evDash) { fx.OnDash(pw, pdir); player.evDash = false; }
+            if (player.evSlip) { fx.OnSlip(pw); player.evSlip = false; }
+            if (player.evShove) { fx.OnShove(pw, pdir); player.evShove = false; }
+            if (player.evBump) { fx.OnBump(pw, player.bumpDir); player.evBump = false; }
+            fx.Tick(rdt, player, pw, state == GameState.Playing);
+            hitCd = Mathf.Max(0, hitCd - rdt); hitFlash = Mathf.Max(0, hitFlash - rdt);
             if (traffic.Collide(player.pos, player.lift, out var push, out bool fast))
             {
                 var np = player.pos + push; if (!city.Blocked(np.x, np.y)) player.Shove(push);
                 if (fast && hitCd <= 0 && state == GameState.Playing) { hitCd = 2f; hitFlash = 1.5f; hits++; raceT += 3f; player.Knock(push.normalized * 9f); }
             }
             if (autoplay && state == GameState.Playing) camYaw = Mathf.LerpAngle(camYaw, player.yaw, 2f * dt);
-            UpdateCamera(dt);
+            UpdateCamera(rdt);
+            UpdateArrow();
             crowd.Render(cam.transform.position, cam.transform.forward); traffic.Render(cam.transform.position);
             float lean = Mathf.Clamp(player.speedNow * 1.6f, 0, 18f);
             playerHr.Add(new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y), player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.05f, lean);
@@ -179,7 +201,8 @@ namespace ShibuyaRush
             crowdHr.Flush(); playerHr.Flush();
             beam.transform.Rotate(0, 60 * dt, 0);
 
-            if (shotDir != null && state != GameState.Menu)
+            if (shotTag != null && Time.unscaledTime >= shotAt) { Shot(shotTag); shotTag = null; }
+            if (shotDir != null && state != GameState.Menu && !fxTest)
             {
                 nextShot -= dt; if (nextShot <= 0) { nextShot = 9f; Shot("t" + shotNo.ToString("D2")); shotNo++; }
             }
@@ -201,7 +224,7 @@ namespace ShibuyaRush
             float p95 = n > 0 ? frameMs[Mathf.Min(n - 1, (int)(n * 0.95f))] : 0, worst = n > 0 ? frameMs[n - 1] : 0;
             var sb = new StringBuilder();
             sb.Append($"{{\"dest\":\"{goalName}\",\"finished\":{(state == GameState.Finished ? "true" : "false")},\"time\":{raceT:F2},");
-            sb.Append($"\"frames\":{n},\"avgMs\":{avg:F2},\"avgFps\":{(avg > 0 ? 1000f / avg : 0):F1},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"crowd\":{crowd.Count},\"trips\":{crowd.Trips},\"waitingEnd\":{crowd.Waiting},\"cars\":{traffic.Count},\"carsStopped\":{traffic.Stopped},\"carHits\":{hits},\"onDeck\":{crowd.OnDeck},\"maxPlayerLift\":{maxLift:F1},\"buildings\":{city.BuildingCount}}}");
+            sb.Append($"\"frames\":{n},\"avgMs\":{avg:F2},\"avgFps\":{(avg > 0 ? 1000f / avg : 0):F1},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"crowd\":{crowd.Count},\"trips\":{crowd.Trips},\"waitingEnd\":{crowd.Waiting},\"cars\":{traffic.Count},\"carsStopped\":{traffic.Stopped},\"carHits\":{hits},\"onDeck\":{crowd.OnDeck},\"maxPlayerLift\":{maxLift:F1},\"bumps\":{player.bumps},\"plowed\":{player.plowed},\"buildings\":{city.BuildingCount}}}");
             if (shotDir != null) File.WriteAllText(Path.Combine(shotDir, "result.json"), sb.ToString());
             Debug.Log("[Perf] " + sb);
         }
@@ -211,7 +234,8 @@ namespace ShibuyaRush
             var p = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
             float y = camYaw * Mathf.Deg2Rad; var back = new Vector3(-Mathf.Sin(y), 0, -Mathf.Cos(y));
             var want = p + back * camBack + Vector3.up * camUp;
-            cam.transform.position = Vector3.Lerp(cam.transform.position, want, 1f - Mathf.Exp(-14f * dt));
+            cam.transform.position = Vector3.Lerp(cam.transform.position, want, 1f - Mathf.Exp(-14f * dt)) + (fx != null ? fx.ShakeOffset : Vector3.zero);
+            cam.fieldOfView = 62f + (fx != null ? fx.FovAdd : 0f);
             cam.transform.rotation = Quaternion.LookRotation((p + Vector3.up * 1.3f + new Vector3(Mathf.Sin(y), 0, Mathf.Cos(y)) * 2f) - cam.transform.position);
             miniCam.transform.position = new Vector3(player.pos.x, 300, player.pos.y);
         }
@@ -253,12 +277,13 @@ namespace ShibuyaRush
                 }
                 return;
             }
+            DrawOverlays(W, H);
             // 時間・速度・目的地
             GUI.Box(new Rect(16, 16, 470, 100), "", box);
-            Label(new Rect(28, 18, 450, 40), $"{raceT:F2} s", mid, Color.white);
+            Label(new Rect(28, 18, 450, 40), fx.ClockFrozen ? $"❚❚ {raceT:F2} s   TIME STOP" : $"{raceT:F2} s", mid, fx.ClockFrozen ? new Color(0.5f, 0.9f, 1f) : Color.white);
             Label(new Rect(28, 56, 450, 24), "▶ " + goalName, small, new Color(1, 0.9f, 0.4f));
             float dist = (player.pos - goal).magnitude;
-            Label(new Rect(28, 80, 450, 24), $"残り {dist:F0} m   {player.speedNow * 3.6f:F0} km/h   人混み抵抗 {(1 - player.slowFactor) * 100:F0}%", small, Color.white);
+            Label(new Rect(28, 80, 450, 24), $"残り {dist:F0} m   {player.speedNow * 3.6f:F0} km/h   衝突 {player.bumps} 回  吹き飛ばし {player.plowed} 人", small, Color.white);
             if (hitFlash > 0) Label(new Rect(0, H / 2 + 40, W, 60), "車に接触!  +3秒", big, new Color(1, 0.35f, 0.3f));
             // スキル
             Skill(new Rect(16, H - 90, 200, 70), "Shift ダッシュ", player.dashCd, Player.DashCool, player.dashT > 0);
@@ -271,6 +296,8 @@ namespace ShibuyaRush
             var rel = (goal - player.pos) / 110f; var gp = mr.center + new Vector2(rel.x, -rel.y) * 110f;
             gp = new Vector2(Mathf.Clamp(gp.x, mr.xMin + 6, mr.xMax - 6), Mathf.Clamp(gp.y, mr.yMin + 6, mr.yMax - 6));
             var old = GUI.color; GUI.color = new Color(1, 0.8f, 0.1f); GUI.DrawTexture(new Rect(gp.x - 6, gp.y - 6, 12, 12), Texture2D.whiteTexture); GUI.color = old;
+            DrawGoalArrow(W, H, dist);
+            DrawBanner(W, H);
             // ゴール方向インジケータ
             var sp = cam.WorldToScreenPoint(new Vector3(goal.x, 6, goal.y));
             bool onScreen = sp.z > 0 && sp.x > 0 && sp.x < Screen.width && sp.y > 0 && sp.y < Screen.height;
@@ -294,6 +321,114 @@ namespace ShibuyaRush
                 var c2 = new GUIStyle(small) { alignment = TextAnchor.MiddleCenter };
                 Label(new Rect(W / 2 - 280, H / 2 + 40, 560, 40), "R:もう一度   M:目的地を選ぶ", c2, Color.white);
             }
+        }
+
+        // ---------------- 演出・矢印 ----------------
+        void DrawOverlays(float W, float H)
+        {
+            var old = GUI.color; var full = new Rect(0, 0, W, H);
+            var vc = fx.VignetteColor; if (vc.a > 0.01f) { GUI.color = vc; GUI.DrawTexture(full, vigTex, ScaleMode.StretchToFill, true); }
+            if (fx.SpeedLines > 0.02f)
+            {   // 中心から外へ走る線
+                var mat = GUI.matrix; var ctr = new Vector2(W / 2, H / 2); float t = Time.unscaledTime;
+                for (int i = 0; i < 56; i++)
+                {
+                    float ang = i * (360f / 56f) + Mathf.Sin(i * 12.9898f + Mathf.Floor(t * 24f)) * 3f;
+                    float r0 = H * (0.36f + 0.1f * Mathf.Abs(Mathf.Sin(i * 3.1f + Mathf.Floor(t * 30f)))), len = H * (0.18f + 0.3f * Mathf.Abs(Mathf.Sin(i * 7.7f)));
+                    GUI.matrix = mat; GUIUtility.RotateAroundPivot(ang, ctr);
+                    GUI.color = new Color(1, 1, 1, 0.55f * fx.SpeedLines * (0.4f + 0.6f * Mathf.Abs(Mathf.Sin(i * 5.3f))));
+                    GUI.DrawTexture(new Rect(ctr.x - 1.5f, ctr.y - r0 - len, 3f, len), Texture2D.whiteTexture);
+                }
+                GUI.matrix = mat;
+            }
+            var fl = fx.Flash; if (fl.a > 0.01f) { GUI.color = fl; GUI.DrawTexture(full, Texture2D.whiteTexture); }
+            GUI.color = old;
+        }
+
+        void DrawBanner(float W, float H)
+        {
+            if (fx.BannerT <= 0f) return;
+            float a = Mathf.Clamp01(fx.BannerT / 0.35f), age = 1f - Mathf.Clamp01(fx.BannerT / 1.4f);
+            float pop = 1f + 0.9f * Mathf.Exp(-age * 14f);                          // 出現時にドンと大きく
+            var mat = GUI.matrix; var piv = new Vector2(W / 2, H * 0.36f);
+            GUIUtility.ScaleAroundPivot(new Vector2(pop, pop), piv);
+            var c = fx.BannerColor; c.a = a;
+            Label(new Rect(0, piv.y - 45, W, 90), fx.Banner, big, c);
+            var sub = new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter }; var cs = new Color(1, 1, 1, a);
+            Label(new Rect(0, piv.y + 30, W, 40), fx.BannerSub, sub, cs);
+            GUI.matrix = mat;
+        }
+
+        /// <summary>画面上部に、目的地の方向を示す大きな矢印を常に出す(カメラの向きに対する相対角)。</summary>
+        void DrawGoalArrow(float W, float H, float dist)
+        {
+            var to = goal - player.pos; float bearing = Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg;
+            float rel = Mathf.DeltaAngle(camYaw, bearing);
+            var ctr = new Vector2(W / 2, 92); var mat = GUI.matrix; var old = GUI.color;
+            float pulse = 1f + 0.06f * Mathf.Sin(Time.unscaledTime * 6f);
+            GUIUtility.RotateAroundPivot(rel, ctr);
+            float sz = 96f * pulse;
+            GUI.color = new Color(0, 0, 0, 0.6f); GUI.DrawTexture(new Rect(ctr.x - sz / 2 - 6, ctr.y - sz / 2 - 6, sz + 12, sz + 12), arrowTex);
+            GUI.color = new Color(1f, 0.85f, 0.15f, 1f); GUI.DrawTexture(new Rect(ctr.x - sz / 2, ctr.y - sz / 2, sz, sz), arrowTex);
+            GUI.matrix = mat; GUI.color = old;
+            Label(new Rect(W / 2 - 160, ctr.y + 46, 320, 34), $"{dist:F0} m", mid, new Color(1, 0.9f, 0.3f));
+        }
+
+        /// <summary>プレイヤーの前方に浮かぶ3Dの矢印。目的地の方向を指す。</summary>
+        void UpdateArrow()
+        {
+            bool on = state == GameState.Countdown || state == GameState.Playing;
+            arrow3d.SetActive(on); if (!on) return;
+            var to = goal - player.pos; var dir = to.sqrMagnitude > 1e-4f ? to.normalized : Vector2.up;
+            var p = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
+            arrow3d.transform.position = p + new Vector3(dir.x, 0, dir.y) * 1.9f + Vector3.up * (2.5f + 0.12f * Mathf.Sin(Time.unscaledTime * 5f));
+            arrow3d.transform.rotation = Quaternion.LookRotation(new Vector3(dir.x, 0, dir.y));
+            float k = 1.1f + 0.1f * Mathf.Sin(Time.unscaledTime * 5f); arrow3d.transform.localScale = new Vector3(k, k, k);
+        }
+
+        static Mesh ArrowMesh()
+        {
+            var v = new List<Vector3>(); var t = new List<int>();
+            void Tri(Vector3 a, Vector3 b, Vector3 c) { int s = v.Count; v.Add(a); v.Add(b); v.Add(c); t.Add(s); t.Add(s + 1); t.Add(s + 2); }
+            void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d) { Tri(a, b, c); Tri(a, c, d); }
+            float w = 0.13f, h = 0.09f, L = 0.9f;
+            // 軸(+Z方向に伸びる箱)
+            Quad(new Vector3(-w, h, 0), new Vector3(-w, h, L), new Vector3(w, h, L), new Vector3(w, h, 0));       // 上
+            Quad(new Vector3(-w, -h, 0), new Vector3(w, -h, 0), new Vector3(w, -h, L), new Vector3(-w, -h, L));   // 下
+            Quad(new Vector3(-w, -h, 0), new Vector3(-w, -h, L), new Vector3(-w, h, L), new Vector3(-w, h, 0));   // 左
+            Quad(new Vector3(w, -h, 0), new Vector3(w, h, 0), new Vector3(w, h, L), new Vector3(w, -h, L));       // 右
+            Quad(new Vector3(-w, -h, 0), new Vector3(-w, h, 0), new Vector3(w, h, 0), new Vector3(w, -h, 0));     // 後ろ
+            // 頭(ピラミッド)
+            float hw = 0.42f, hh = 0.12f, tip = 1.7f;
+            var a0 = new Vector3(-hw, -hh, L); var b0 = new Vector3(hw, -hh, L); var c0 = new Vector3(hw, hh, L); var d0 = new Vector3(-hw, hh, L); var ap = new Vector3(0, 0, tip);
+            Quad(a0, d0, c0, b0);
+            Tri(a0, ap, d0); Tri(d0, ap, c0); Tri(c0, ap, b0); Tri(b0, ap, a0);
+            var m = new Mesh { name = "GoalArrow" }; m.SetVertices(v); m.SetTriangles(t, 0); m.RecalculateNormals(); m.RecalculateBounds(); return m;
+        }
+
+        static Texture2D MakeArrowTex()
+        {
+            const int N = 128; var tx = new Texture2D(N, N, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp };
+            for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
+            {
+                float u = (x + .5f) / N - .5f, vv = (y + .5f) / N;            // vv: 下0→上1 (画面では上向き)
+                bool head = vv > 0.5f && Mathf.Abs(u) < (1f - vv) * 0.9f + 0.0f && vv < 0.97f;
+                bool shaft = vv <= 0.55f && vv > 0.08f && Mathf.Abs(u) < 0.12f;
+                tx.SetPixel(x, y, head || shaft ? Color.white : Color.clear);
+            }
+            tx.Apply(); return tx;
+        }
+
+        static Texture2D MakeVignetteTex()
+        {
+            const int N = 128; var tx = new Texture2D(N, N, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp };
+            for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
+            {
+                float u = (x + .5f) / N * 2 - 1, vv = (y + .5f) / N * 2 - 1; float r = Mathf.Sqrt(u * u + vv * vv) / 1.2f;
+                float a = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((r - 0.45f) / 0.55f));
+                tx.SetPixel(x, y, new Color(1, 1, 1, a));
+            }
+            tx.Apply(); return tx;
         }
 
         void Skill(Rect r, string name, float cd, float total, bool active)

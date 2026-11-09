@@ -13,7 +13,7 @@ namespace ShibuyaRush
         {
             public int edge, toNode, hub, pending; public float t;     // 辺上の位置(fromNodeからの距離)
             public float speed, lateral, phase, scale; public int tint;
-            public Vector2 pos, off, vel; public float yaw, lift;
+            public Vector2 pos, off, vel; public float yaw, lift, air, airV;
         }
         readonly PedGraph g; readonly Agent[] a; readonly HumanoidRenderer hr;
         readonly int[] cellHead = new int[1 << 17]; readonly int[] next;
@@ -94,6 +94,8 @@ namespace ShibuyaRush
         public Vector2 PosOf(int i) => a[i].pos;
         public float LiftOf(int i) => a[i].lift;
         public void Push(int i, Vector2 impulse) { a[i].vel += impulse; }
+        /// <summary>弾き飛ばす(水平の勢いと、宙に浮く高さ)。</summary>
+        public void Launch(int i, Vector2 impulse, float up) { a[i].vel += impulse; if (a[i].air <= 0.01f) a[i].airV = up; }
         public void Shift(int i, Vector2 d) { a[i].off += d; }
 
         void Advance(int i)
@@ -117,12 +119,19 @@ namespace ShibuyaRush
             ag.lateral = ne.car ? SideLane(ne, ag.lateral >= 0f ? 1f : -1f) : Mathf.Clamp(ag.lateral, -half, half);
         }
 
-        public void Step(float dt, Vector2 player, bool playerSolid, float playerLift = 0f)
+        int frame;
+        public void Step(float dtFrame, Vector2 player, bool playerSolid, float playerLift = 0f)
         {
-            Rebuild(); Clock += dt; int waiting = 0;
+            Rebuild(); Clock += dtFrame; int waiting = 0; frame++;
             for (int i = 0; i < a.Length; i++)
             {
                 ref var ag = ref a[i];
+                float dt = dtFrame;
+                if ((ag.pos - player).sqrMagnitude > 160f * 160f)   // 遠くの人は3フレームに1回だけ動かす(負荷対策)
+                {
+                    if ((i + frame) % 3 != 0) { if (ag.pending >= 0) waiting++; continue; }
+                    dt = dtFrame * 3f;
+                }
                 if (ag.pending >= 0)
                 {
                     if (g.Green(ag.pending, Clock)) Enter(i, ag.pending, ag.toNode); else { waiting++; ag.t = Mathf.Min(ag.t, g.edges[ag.edge].len); }
@@ -138,14 +147,15 @@ namespace ShibuyaRush
                 if (ag.off.sqrMagnitude > 9f) ag.off = ag.off.normalized * 3f;
                 { var ee = g.edges[ag.edge]; float fr = Mathf.Clamp01(ag.t / Mathf.Max(ee.len, 0.01f)); ag.lift = ag.toNode == ee.b ? Mathf.Lerp(ee.lA, ee.lB, fr) : Mathf.Lerp(ee.lB, ee.lA, fr); }
                 var d = ag.pos - player;
-                if (playerSolid && d.sqrMagnitude < 0.49f && Mathf.Abs(ag.lift - playerLift) < 1.5f)
+                if (playerSolid && d.sqrMagnitude < 0.2f && Mathf.Abs(ag.lift - playerLift) < 1.5f)
                 {
-                    float dd = d.magnitude; if (dd > 1e-3f) ag.off += d / dd * (0.7f - dd) * 18f * dt;
+                    float dd = d.magnitude; if (dd > 1e-3f) ag.off += d / dd * (0.45f - dd) * 4f * dt;   // 人はほとんどプレイヤーをよけない
                 }
                 var delta = tgt + ag.off - ag.pos;
                 ag.pos += delta * Mathf.Min(1f, 8f * dt);
                 if (delta.sqrMagnitude > 1e-4f) ag.yaw = Mathf.LerpAngle(ag.yaw, Mathf.Atan2(delta.x, delta.y) * Mathf.Rad2Deg, 8f * dt);
                 if (ag.pending < 0) ag.phase += ag.speed * dt * 5.2f;
+                if (ag.airV != 0f || ag.air > 0f) { ag.air += ag.airV * dt; ag.airV -= 16f * dt; if (ag.air <= 0f) { ag.air = 0f; ag.airV = 0f; } }
             }
             Waiting = waiting;
             for (int i = 0; i < a.Length; i++)    // 近すぎる者どうしを少し離す
@@ -157,7 +167,7 @@ namespace ShibuyaRush
                     var d = a[i].pos - a[j].pos; float dd = d.sqrMagnitude;
                     if (dd < 0.16f && dd > 1e-6f)
                     {
-                        var push = d / Mathf.Sqrt(dd) * (0.4f - Mathf.Sqrt(dd)) * 2.5f * dt;
+                        var push = d / Mathf.Sqrt(dd) * (0.4f - Mathf.Sqrt(dd)) * 2.5f * dtFrame;
                         a[i].off += push; a[j].off -= push;
                     }
                 }
@@ -174,7 +184,7 @@ namespace ShibuyaRush
                 var d = a[i].pos - c; float d2 = d.sqrMagnitude;
                 if (d2 > far2) continue;
                 if (d2 > 100f && Vector2.Dot(d, f) < 0.25f * Mathf.Sqrt(d2)) continue; // 視野外(約±75度の外)
-                var p = new Vector3(a[i].pos.x, hf.Height(a[i].pos.x, a[i].pos.y) + a[i].lift, a[i].pos.y);
+                var p = new Vector3(a[i].pos.x, hf.Height(a[i].pos.x, a[i].pos.y) + a[i].lift + a[i].air, a[i].pos.y);
                 if (d2 < near2) hr.Add(p, a[i].yaw, a[i].phase, 1f, a[i].tint, a[i].scale);
                 else hr.AddFar(p, a[i].tint, a[i].scale);
             }

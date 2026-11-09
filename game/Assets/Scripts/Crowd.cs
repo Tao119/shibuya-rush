@@ -44,18 +44,23 @@ namespace ShibuyaRush
                 a[i].edge = eid; a[i].toNode = fwd ? e.b : e.a; a[i].t = (float)rng.NextDouble() * e.len;
                 a[i].hub = rng.Next(g.hubNodes.Length); a[i].pending = -1;
                 a[i].speed = 0.9f + (float)rng.NextDouble() * 0.9f;
-                a[i].lateral = Lane(e.width);
+                a[i].lateral = Lane(e);
                 a[i].phase = (float)rng.NextDouble() * 6.28f; a[i].tint = rng.Next(0, hr.TintCount);
                 a[i].scale = 0.88f + (float)rng.NextDouble() * 0.22f;
                 a[i].pos = Target(i);
             }
         }
 
-        float Lane(float width)
+        float Lane(PedGraph.Edge e) => e.car ? SideLane(e, rng.NextDouble() < 0.5 ? 1f : -1f) : Wide(e.width);
+
+        float Wide(float width)
         {
             float half = Mathf.Max(0.3f, (width - 1f) * 0.5f);
             return half * ((float)rng.NextDouble() * 1.6f - 0.8f);
         }
+
+        /// <summary>車道は避け、道の両端(歩道側)を歩く。</summary>
+        float SideLane(PedGraph.Edge e, float sign) => sign * (e.width * 0.5f - 0.5f - (float)rng.NextDouble() * 0.8f);
 
         Vector2 Target(int i)
         {
@@ -108,7 +113,8 @@ namespace ShibuyaRush
         void Enter(int i, int eid, int node)
         {
             ref var ag = ref a[i]; var ne = g.edges[eid]; ag.pending = -1; ag.edge = eid; ag.toNode = g.Other(eid, node); ag.t = 0;
-            float half = Mathf.Max(0.3f, (ne.width - 1f) * 0.5f); ag.lateral = Mathf.Clamp(ag.lateral, -half, half);
+            float half = Mathf.Max(0.3f, (ne.width - 1f) * 0.5f);
+            ag.lateral = ne.car ? SideLane(ne, ag.lateral >= 0f ? 1f : -1f) : Mathf.Clamp(ag.lateral, -half, half);
         }
 
         public void Step(float dt, Vector2 player, bool playerSolid, float playerLift = 0f)

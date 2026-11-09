@@ -12,14 +12,14 @@ namespace ShibuyaRush
     public class GameManager : MonoBehaviour
     {
         const float GoalRadius = 6f;
-        CityData data; CityBuilder city; PedGraph graph; Crowd crowd; Player player;
+        CityData data; CityBuilder city; PedGraph graph, carGraph; Crowd crowd; Traffic traffic; Player player; float hitCd, hitFlash; int hits; int carCount = 800;
         HumanoidRenderer crowdHr, playerHr; Camera cam, miniCam; RenderTexture miniRt;
         GameState state = GameState.Menu; float stateT, raceT;
         int poiIndex; Vector2 goal; float goalLift; string goalName = ""; GameObject beam;
         float camYaw; int crowdCount = 30000; float hb;
         GUIStyle big, mid, small, box;
         // Bot / 計測
-        bool autoplay, noSkills; Vector2 startPos; float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT;
+        bool autoplay, noSkills, selfTest; Vector2 startPos; float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT;
         readonly List<float> frameMs = new List<float>(); float nextShot; int shotNo; string resultNote = "";
 
         Material M(string n) => Resources.Load<Material>("Mats/" + n);
@@ -31,6 +31,8 @@ namespace ShibuyaRush
             {
                 if (args[i] == "-autoplay" && i + 1 < args.Length) { autoplay = true; poiIndex = int.Parse(args[i + 1]); }
                 if (args[i] == "-noskills") noSkills = true;
+                if (args[i] == "-selftest") selfTest = true;
+                if (args[i] == "-cars" && i + 1 < args.Length) carCount = int.Parse(args[i + 1]);
                 if (args[i] == "-camback" && i + 1 < args.Length) camBack = float.Parse(args[i + 1]);
                 if (args[i] == "-camup" && i + 1 < args.Length) camUp = float.Parse(args[i + 1]);
                 if (args[i] == "-start" && i + 2 < args.Length) startPos = new Vector2(float.Parse(args[i + 1]), float.Parse(args[i + 2]));
@@ -59,6 +61,9 @@ namespace ShibuyaRush
             crowdHr = new HumanoidRenderer(tints, M("Pants"), M("Skin"));
             playerHr = new HumanoidRenderer(new[] { M("PlayerTint") }, M("PlayerPants"), M("Skin"));
             crowd = new Crowd(graph, crowdHr, crowdCount, 12345);
+            carGraph = new PedGraph(data, true); carGraph.BuildHubs(Mathf.Min(150, Mathf.Max(2, carGraph.MainCount / 4)), 11, new List<Vector2>());
+            var carMats = new Material[6]; for (int i = 0; i < carMats.Length; i++) carMats[i] = M("Car" + i);
+            traffic = new Traffic(carGraph, graph, crowd, carCount, carMats, M("CarCabin"));
             player = new Player(city, crowd, graph, Vector2.zero) { yaw = 0 };
             beam = GameObject.CreatePrimitive(PrimitiveType.Cylinder); Destroy(beam.GetComponent<Collider>());
             beam.GetComponent<MeshRenderer>().sharedMaterial = M("Goal"); beam.SetActive(false);
@@ -67,6 +72,14 @@ namespace ShibuyaRush
             miniCam.transform.rotation = Quaternion.Euler(90, 0, 0); miniCam.clearFlags = CameraClearFlags.SolidColor;
             miniCam.backgroundColor = new Color(0.8f, 0.85f, 0.8f); miniCam.farClipPlane = 500; miniCam.depth = -5;
             camYaw = 0; UpdateCamera(1f);
+            if (selfTest)
+            {   // 車との当たり判定の単体確認(車は原点で+Z向き、長さ4.2m 幅1.8m)
+                bool a = Traffic.Overlap(new Vector2(0, 2f), Vector2.zero, 0, out var p1);      // 前方2m: 当たる、前へ押し出し
+                bool b = Traffic.Overlap(new Vector2(3, 0), Vector2.zero, 0, out _);            // 横3m: 当たらない
+                bool c2 = Traffic.Overlap(new Vector2(0.9f, 0), Vector2.zero, 0, out var p3);    // 横0.9m: 当たる、横へ押し出し
+                bool d2 = Traffic.Overlap(new Vector2(0, 2f), Vector2.zero, 180f, out var p4);   // 後ろ向きの車でも前後対称
+                Debug.Log($"[SelfTest] frontHit={a} push={p1} (期待 True, y>0) sideFar={b} (期待 False) sideNear={c2} push={p3} (期待 True, x>0) rev={d2} push={p4} (期待 True)");
+            }
             Debug.Log($"[Shibuya] roads={data.roads.Length} buildings={city.BuildingCount} nodes={graph.nodes.Count} main={graph.MainCount} edges={graph.edges.Count} hubs={graph.hubNodes.Length} crowd={crowd.Count}");
             if (autoplay) StartRace(poiIndex); else if (shotDir != null) { Directory.CreateDirectory(shotDir); }
         }
@@ -149,10 +162,17 @@ namespace ShibuyaRush
 
             // 人混みはメニューでも動かす
             crowd.Step(dt, player.pos, !player.Slipping, player.lift);
+            traffic.Step(dt);
             player.Tick(dt, wish, dash, slip, shove);
+            hitCd = Mathf.Max(0, hitCd - dt); hitFlash = Mathf.Max(0, hitFlash - dt);
+            if (traffic.Collide(player.pos, player.lift, out var push, out bool fast))
+            {
+                var np = player.pos + push; if (!city.Blocked(np.x, np.y)) player.Shove(push);
+                if (fast && hitCd <= 0 && state == GameState.Playing) { hitCd = 2f; hitFlash = 1.5f; hits++; raceT += 3f; player.Knock(push.normalized * 9f); }
+            }
             if (autoplay && state == GameState.Playing) camYaw = Mathf.LerpAngle(camYaw, player.yaw, 2f * dt);
             UpdateCamera(dt);
-            crowd.Render(cam.transform.position, cam.transform.forward);
+            crowd.Render(cam.transform.position, cam.transform.forward); traffic.Render(cam.transform.position);
             float lean = Mathf.Clamp(player.speedNow * 1.6f, 0, 18f);
             playerHr.Add(new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y), player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.05f, lean);
             maxLift = Mathf.Max(maxLift, player.lift);
@@ -181,7 +201,7 @@ namespace ShibuyaRush
             float p95 = n > 0 ? frameMs[Mathf.Min(n - 1, (int)(n * 0.95f))] : 0, worst = n > 0 ? frameMs[n - 1] : 0;
             var sb = new StringBuilder();
             sb.Append($"{{\"dest\":\"{goalName}\",\"finished\":{(state == GameState.Finished ? "true" : "false")},\"time\":{raceT:F2},");
-            sb.Append($"\"frames\":{n},\"avgMs\":{avg:F2},\"avgFps\":{(avg > 0 ? 1000f / avg : 0):F1},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"crowd\":{crowd.Count},\"trips\":{crowd.Trips},\"waitingEnd\":{crowd.Waiting},\"onDeck\":{crowd.OnDeck},\"maxPlayerLift\":{maxLift:F1},\"buildings\":{city.BuildingCount}}}");
+            sb.Append($"\"frames\":{n},\"avgMs\":{avg:F2},\"avgFps\":{(avg > 0 ? 1000f / avg : 0):F1},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"crowd\":{crowd.Count},\"trips\":{crowd.Trips},\"waitingEnd\":{crowd.Waiting},\"cars\":{traffic.Count},\"carsStopped\":{traffic.Stopped},\"carHits\":{hits},\"onDeck\":{crowd.OnDeck},\"maxPlayerLift\":{maxLift:F1},\"buildings\":{city.BuildingCount}}}");
             if (shotDir != null) File.WriteAllText(Path.Combine(shotDir, "result.json"), sb.ToString());
             Debug.Log("[Perf] " + sb);
         }
@@ -239,6 +259,7 @@ namespace ShibuyaRush
             Label(new Rect(28, 56, 450, 24), "▶ " + goalName, small, new Color(1, 0.9f, 0.4f));
             float dist = (player.pos - goal).magnitude;
             Label(new Rect(28, 80, 450, 24), $"残り {dist:F0} m   {player.speedNow * 3.6f:F0} km/h   人混み抵抗 {(1 - player.slowFactor) * 100:F0}%", small, Color.white);
+            if (hitFlash > 0) Label(new Rect(0, H / 2 + 40, W, 60), "車に接触!  +3秒", big, new Color(1, 0.35f, 0.3f));
             // スキル
             Skill(new Rect(16, H - 90, 200, 70), "Shift ダッシュ", player.dashCd, Player.DashCool, player.dashT > 0);
             Skill(new Rect(226, H - 90, 200, 70), "Space すり抜け", player.slipCd, Player.SlipCool, player.Slipping);

@@ -6,7 +6,7 @@ namespace ShibuyaRush
     /// <summary>道路中心線から作る歩行者グラフ。人混みの経路(ハブへの最短経路表)とBot用の経路探索に使う。</summary>
     public class PedGraph
     {
-        public struct Edge { public int a, b; public float len, width; public Vector2 dir; public int sig; public float lA, lB; }  // sig: 0=信号なし、1以上=信号つき横断歩道(位相オフセット秒+1)
+        public struct Edge { public int a, b; public float len, width; public Vector2 dir; public int sig; public float lA, lB; public bool car; }  // sig: 0=信号なし、1以上=信号つき横断歩道(位相オフセット秒+1)
         public readonly List<Vector2> nodes = new List<Vector2>();
         public readonly List<Edge> edges = new List<Edge>();
         public readonly List<float> nodeLift = new List<float>();
@@ -30,7 +30,7 @@ namespace ShibuyaRush
             id = nodes.Count; nodes.Add(p); nodeLift.Add(0f); adj.Add(new List<int>()); keyToNode[k] = id; return id;
         }
 
-        void AddEdge(int na, int nb, float width, bool signal = false, float lA = 0f, float lB = 0f)
+        void AddEdge(int na, int nb, float width, bool signal = false, float lA = 0f, float lB = 0f, bool car = false)
         {
             var a = nodes[na]; var b = nodes[nb]; float len = (b - a).magnitude;
             int id = edges.Count;
@@ -40,16 +40,27 @@ namespace ShibuyaRush
                 var m = (a + b) * 0.5f; int cx = Mathf.FloorToInt(m.x / 80f), cz = Mathf.FloorToInt(m.y / 80f);
                 sig = 1 + (int)((uint)((cx * 73856093) ^ (cz * 19349663)) % (uint)SignalCycle);
             }
-            edges.Add(new Edge { a = na, b = nb, len = len, width = width, dir = len > 1e-4f ? (b - a) / len : Vector2.up, sig = sig, lA = lA, lB = lB });
+            edges.Add(new Edge { a = na, b = nb, len = len, width = width, dir = len > 1e-4f ? (b - a) / len : Vector2.up, sig = sig, lA = lA, lB = lB, car = car });
             nodeLift[na] = Mathf.Max(nodeLift[na], lA); nodeLift[nb] = Mathf.Max(nodeLift[nb], lB);
             adj[na].Add(id); adj[nb].Add(id);
         }
 
-        public PedGraph(CityData city)
+        /// <summary>車が走る道(自動車道・一般道)。</summary>
+        public static bool IsCarRoad(RoadData r)
+        {
+            switch (r.cls)
+            {
+                case "motorway": case "trunk": case "primary": case "secondary": case "tertiary": case "unclassified": return true;
+                case "residential": return r.w >= 4.5f;
+                default: return false;
+            }
+        }
+
+        public PedGraph(CityData city, bool vehicles = false)
         {
             foreach (var r in city.roads)
             {
-                if (!r.walk || r.tunnel || r.cls == "steps") continue;
+                if (vehicles ? (!IsCarRoad(r) || r.tunnel) : (!r.walk || r.tunnel || r.cls == "steps")) continue;
                 float L = CityData.PolyLen(r.p), run = 0f;
                 for (int i = 0; i + 3 < r.p.Length; i += 2)
                 {
@@ -57,12 +68,13 @@ namespace ShibuyaRush
                     float seg = (b - a).magnitude; float s0 = run; run += seg;
                     if (seg < 0.5f) continue;
                     int na = Node(a), nb = Node(b); if (na == nb) continue;
-                    AddEdge(na, nb, r.w, r.sig == 1, CityData.Lift(r, s0, L), CityData.Lift(r, run, L));
+                    AddEdge(na, nb, r.w, !vehicles && r.sig == 1, CityData.Lift(r, s0, L), CityData.Lift(r, run, L), !vehicles && IsCarRoad(r) && r.w >= 6f && r.lift <= 0f);
                 }
             }
             // 階段: 両端がすでにグラフにあるものだけ、両端の高さをつなぐ斜面として加える
             foreach (var r in city.roads)
             {
+                if (vehicles) break;
                 if (r.cls != "steps" || r.tunnel || r.p.Length < 4) continue;
                 if (!keyToNode.TryGetValue(K(new Vector2(r.p[0], r.p[1])), out int sa)) continue;
                 if (!keyToNode.TryGetValue(K(new Vector2(r.p[r.p.Length - 2], r.p[r.p.Length - 1])), out int sb)) continue;

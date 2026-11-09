@@ -69,6 +69,9 @@ public static class ProjectSetup
         Color[] t = { new Color(.90f,.25f,.25f), new Color(.2f,.5f,.9f), new Color(.25f,.75f,.4f), new Color(.95f,.8f,.2f), new Color(.7f,.35f,.85f),
                       new Color(.95f,.55f,.7f), new Color(.15f,.75f,.8f), new Color(.92f,.92f,.92f), new Color(.25f,.25f,.3f), new Color(.6f,.4f,.25f) };
         for (int i = 0; i < t.Length; i++) Mat("Tint" + i, t[i]);
+        Color[] cc = { new Color(.92f,.92f,.94f), new Color(.1f,.1f,.12f), new Color(.7f,.1f,.12f), new Color(.15f,.3f,.65f), new Color(.75f,.75f,.78f), new Color(.95f,.8f,.2f) };
+        for (int i = 0; i < cc.Length; i++) Mat("Car" + i, cc[i], 0.45f);
+        Mat("CarCabin", new Color(.12f, .16f, .22f), 0.7f);
         Mat("Pants", new Color(.2f, .22f, .32f)); Mat("PlayerPants", new Color(.08f, .08f, .1f)); Mat("Skin", new Color(.96f, .78f, .64f));
         Mat("PlayerTint", new Color(1f, .42f, .08f)); Mat("Goal", new Color(1f, .85f, .2f), 0.2f, new Color(2.5f, 1.8f, .3f));
         AssetDatabase.SaveAssets();

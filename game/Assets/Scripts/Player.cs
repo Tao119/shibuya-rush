@@ -60,6 +60,9 @@ namespace ShibuyaRush
             phase += speedNow * dt * 2.6f;
         }
 
+        public void Knock(Vector2 v) { vel = v; }
+        public void Shove(Vector2 d) { pos += d; }
+
         void Move(Vector2 d)
         {
             var n = pos + d;

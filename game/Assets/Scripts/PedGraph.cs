@@ -6,7 +6,7 @@ namespace ShibuyaRush
     /// <summary>道路中心線から作る歩行者グラフ。人混みの経路(ハブへの最短経路表)とBot用の経路探索に使う。</summary>
     public class PedGraph
     {
-        public struct Edge { public int a, b; public float len, width; public Vector2 dir; }
+        public struct Edge { public int a, b; public float len, width; public Vector2 dir; public int sig; }  // sig: 0=信号なし、1以上=信号つき横断歩道(位相オフセット秒+1)
         public readonly List<Vector2> nodes = new List<Vector2>();
         public readonly List<Edge> edges = new List<Edge>();
         public readonly List<List<int>> adj = new List<List<int>>(); // node -> edge ids
@@ -15,6 +15,9 @@ namespace ShibuyaRush
         public int[] hubNodes; public int[][] nextEdge; // nextEdge[hub][node] = hubへ向かうために進む辺
         readonly Dictionary<long, List<int>> edgeGrid = new Dictionary<long, List<int>>();
         const float GridCell = 20f;
+        public const int SignalCycle = 90; public const float GreenSec = 38f;
+        /// <summary>この辺(信号つき横断歩道)が、時刻tに歩行者青か。</summary>
+        public bool Green(int edge, float t) { int s = edges[edge].sig; return s == 0 || ((t + s - 1) % SignalCycle) < GreenSec; }
 
         static long K(Vector2 p) => ((long)Mathf.RoundToInt(p.x * 2f) << 32) ^ (uint)Mathf.RoundToInt(p.y * 2f);
         static long GK(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
@@ -26,11 +29,17 @@ namespace ShibuyaRush
             id = nodes.Count; nodes.Add(p); adj.Add(new List<int>()); keyToNode[k] = id; return id;
         }
 
-        void AddEdge(int na, int nb, float width)
+        void AddEdge(int na, int nb, float width, bool signal = false)
         {
             var a = nodes[na]; var b = nodes[nb]; float len = (b - a).magnitude;
             int id = edges.Count;
-            edges.Add(new Edge { a = na, b = nb, len = len, width = width, dir = len > 1e-4f ? (b - a) / len : Vector2.up });
+            int sig = 0;
+            if (signal)
+            {   // 近くの横断歩道は同じ位相にそろえる(80mの格子ごと)。大勢が同時に待ち、同時に渡る
+                var m = (a + b) * 0.5f; int cx = Mathf.FloorToInt(m.x / 80f), cz = Mathf.FloorToInt(m.y / 80f);
+                sig = 1 + (int)((uint)((cx * 73856093) ^ (cz * 19349663)) % (uint)SignalCycle);
+            }
+            edges.Add(new Edge { a = na, b = nb, len = len, width = width, dir = len > 1e-4f ? (b - a) / len : Vector2.up, sig = sig });
             adj[na].Add(id); adj[nb].Add(id);
         }
 
@@ -44,7 +53,7 @@ namespace ShibuyaRush
                     var a = new Vector2(r.p[i], r.p[i + 1]); var b = new Vector2(r.p[i + 2], r.p[i + 3]);
                     if ((b - a).magnitude < 0.5f) continue;
                     int na = Node(a), nb = Node(b); if (na == nb) continue;
-                    AddEdge(na, nb, r.w);
+                    AddEdge(na, nb, r.w, r.sig == 1);
                 }
             }
             BridgeNearNodes(2.5f);

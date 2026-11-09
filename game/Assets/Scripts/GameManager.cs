@@ -19,7 +19,7 @@ namespace ShibuyaRush
         float camYaw; int crowdCount = 30000; float hb;
         GUIStyle big, mid, small, box;
         // Bot / 計測
-        bool autoplay; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT;
+        bool autoplay, noSkills; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT;
         readonly List<float> frameMs = new List<float>(); float nextShot; int shotNo; string resultNote = "";
 
         Material M(string n) => Resources.Load<Material>("Mats/" + n);
@@ -30,6 +30,7 @@ namespace ShibuyaRush
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "-autoplay" && i + 1 < args.Length) { autoplay = true; poiIndex = int.Parse(args[i + 1]); }
+                if (args[i] == "-noskills") noSkills = true;
                 if (args[i] == "-shotdir" && i + 1 < args.Length) shotDir = args[i + 1];
                 if (args[i] == "-crowd" && i + 1 < args.Length) crowdCount = int.Parse(args[i + 1]);
                 if (args[i] == "-quitafter" && i + 1 < args.Length) quitAfter = float.Parse(args[i + 1]);
@@ -97,6 +98,7 @@ namespace ShibuyaRush
             if (player.slowFactor < 0.75f && player.dashCd <= 0) dash = true;
             if (stuckT > 0.6f && player.slipCd <= 0) { slip = true; stuckT = 0; }
             if (stuckT > 0.3f && player.shoveCd <= 0) shove = true;
+            if (noSkills) dash = slip = shove = false;
             return to.normalized;
         }
 
@@ -105,7 +107,7 @@ namespace ShibuyaRush
             float dt = Mathf.Min(Time.deltaTime, 0.05f);
             if (state == GameState.Playing || state == GameState.Countdown) frameMs.Add(Time.unscaledDeltaTime * 1000f);
             stateT += dt;
-            hb += Time.unscaledDeltaTime; if (autoplay && hb > 5f) { hb = 0; Debug.Log($"[HB] t={Time.timeSinceLevelLoad:F0} state={state} race={raceT:F1} pos={player.pos} fps={1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f):F0}"); }
+            hb += Time.unscaledDeltaTime; if (autoplay && hb > 5f) { hb = 0; Debug.Log($"[HB] t={Time.timeSinceLevelLoad:F0} wait={crowd.Waiting} state={state} race={raceT:F1} pos={player.pos} fps={1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f):F0}"); }
             bool dash, slip, shove; Vector2 wish = Vector2.zero;
             if (state == GameState.Menu)
             {
@@ -175,7 +177,7 @@ namespace ShibuyaRush
             float p95 = n > 0 ? frameMs[Mathf.Min(n - 1, (int)(n * 0.95f))] : 0, worst = n > 0 ? frameMs[n - 1] : 0;
             var sb = new StringBuilder();
             sb.Append($"{{\"dest\":\"{goalName}\",\"finished\":{(state == GameState.Finished ? "true" : "false")},\"time\":{raceT:F2},");
-            sb.Append($"\"frames\":{n},\"avgMs\":{avg:F2},\"avgFps\":{(avg > 0 ? 1000f / avg : 0):F1},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"crowd\":{crowd.Count},\"trips\":{crowd.Trips},\"buildings\":{city.BuildingCount}}}");
+            sb.Append($"\"frames\":{n},\"avgMs\":{avg:F2},\"avgFps\":{(avg > 0 ? 1000f / avg : 0):F1},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"crowd\":{crowd.Count},\"trips\":{crowd.Trips},\"waitingEnd\":{crowd.Waiting},\"buildings\":{city.BuildingCount}}}");
             if (shotDir != null) File.WriteAllText(Path.Combine(shotDir, "result.json"), sb.ToString());
             Debug.Log("[Perf] " + sb);
         }

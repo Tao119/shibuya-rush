@@ -11,7 +11,7 @@ namespace ShibuyaRush
     {
         struct Agent
         {
-            public int edge, toNode, hub; public float t;     // 辺上の位置(fromNodeからの距離)
+            public int edge, toNode, hub, pending; public float t;     // 辺上の位置(fromNodeからの距離)
             public float speed, lateral, phase, scale; public int tint;
             public Vector2 pos, off, vel; public float yaw;
         }
@@ -19,6 +19,8 @@ namespace ShibuyaRush
         readonly int[] cellHead = new int[1 << 17]; readonly int[] next;
         System.Random rng;
         public int Count => a.Length;
+        public float Clock;                                   // 信号の時刻
+        public int Waiting { get; private set; }               // 赤信号で待っている人数
         public int Trips { get; private set; }               // 目的地に着いた回数(動作確認用)
         public float NearDist = 55f, FarDist = 230f;
 
@@ -39,7 +41,7 @@ namespace ShibuyaRush
                 while (lo < hi) { int mid = (lo + hi) / 2; if (cum[mid] < r) lo = mid + 1; else hi = mid; }
                 int eid = ids[lo]; var e = g.edges[eid]; bool fwd = rng.NextDouble() < 0.5;
                 a[i].edge = eid; a[i].toNode = fwd ? e.b : e.a; a[i].t = (float)rng.NextDouble() * e.len;
-                a[i].hub = rng.Next(g.hubNodes.Length);
+                a[i].hub = rng.Next(g.hubNodes.Length); a[i].pending = -1;
                 a[i].speed = 0.9f + (float)rng.NextDouble() * 0.9f;
                 a[i].lateral = Lane(e.width);
                 a[i].phase = (float)rng.NextDouble() * 6.28f; a[i].tint = rng.Next(0, hr.TintCount);
@@ -97,18 +99,31 @@ namespace ShibuyaRush
             }
             eid = g.nextEdge[ag.hub][node];
             if (eid < 0) { var opts = g.adj[node]; eid = opts[rng.Next(opts.Count)]; ag.hub = rng.Next(g.hubNodes.Length); }
-            var ne = g.edges[eid]; ag.edge = eid; ag.toNode = g.Other(eid, node); ag.t = 0;
+            if (!g.Green(eid, Clock)) { ag.pending = eid; return; }   // 赤信号: 手前で待つ
+            Enter(i, eid, node);
+        }
+
+        void Enter(int i, int eid, int node)
+        {
+            ref var ag = ref a[i]; var ne = g.edges[eid]; ag.pending = -1; ag.edge = eid; ag.toNode = g.Other(eid, node); ag.t = 0;
             float half = Mathf.Max(0.3f, (ne.width - 1f) * 0.5f); ag.lateral = Mathf.Clamp(ag.lateral, -half, half);
         }
 
         public void Step(float dt, Vector2 player, bool playerSolid)
         {
-            Rebuild();
+            Rebuild(); Clock += dt; int waiting = 0;
             for (int i = 0; i < a.Length; i++)
             {
                 ref var ag = ref a[i];
-                ag.t += ag.speed * dt;
-                if (ag.t >= g.edges[ag.edge].len) Advance(i);
+                if (ag.pending >= 0)
+                {
+                    if (g.Green(ag.pending, Clock)) Enter(i, ag.pending, ag.toNode); else { waiting++; ag.t = Mathf.Min(ag.t, g.edges[ag.edge].len); }
+                }
+                else
+                {
+                    ag.t += ag.speed * dt;
+                    if (ag.t >= g.edges[ag.edge].len) Advance(i);
+                }
                 var tgt = Target(i);
                 ag.off += ag.vel * dt; ag.vel *= Mathf.Exp(-4f * dt);
                 ag.off *= Mathf.Exp(-1.6f * dt);
@@ -121,8 +136,9 @@ namespace ShibuyaRush
                 var delta = tgt + ag.off - ag.pos;
                 ag.pos += delta * Mathf.Min(1f, 8f * dt);
                 if (delta.sqrMagnitude > 1e-4f) ag.yaw = Mathf.LerpAngle(ag.yaw, Mathf.Atan2(delta.x, delta.y) * Mathf.Rad2Deg, 8f * dt);
-                ag.phase += ag.speed * dt * 5.2f;
+                if (ag.pending < 0) ag.phase += ag.speed * dt * 5.2f;
             }
+            Waiting = waiting;
             for (int i = 0; i < a.Length; i++)    // 近すぎる者どうしを少し離す
             {
                 int h = Hash(Mathf.FloorToInt(a[i].pos.x / 2f), Mathf.FloorToInt(a[i].pos.y / 2f));

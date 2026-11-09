@@ -33,7 +33,7 @@ for e in json.load(open(RAW / "roads.json"))["elements"]:
     t = e["tags"]; hw = t["highway"].replace("_link", "")
     if t.get("area") == "yes": continue
     w = num(t.get("width")) or WIDTH.get(hw, 5)
-    roads.append({"cls": hw, "name": t.get("name", ""), "w": w, "walk": hw not in ("motorway", "trunk"),
+    roads.append({"cls": hw, "name": t.get("name", ""), "w": w, "walk": hw not in ("motorway", "trunk"), "sig": 1 if t.get("crossing") == "traffic_signals" else 0,
                   "bridge": t.get("bridge") == "yes" or t.get("layer") in ("1", "2"),
                   "tunnel": t.get("tunnel") == "yes" or (num(t.get("layer")) or 0) < 0,
                   "p": flat(g)})

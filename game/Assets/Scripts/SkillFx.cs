@@ -35,9 +35,10 @@ namespace ShibuyaRush
         // 火花
         readonly ParticleSystem sparks;
         // ポストエフェクト
-        readonly Bloom bloom; readonly Vignette vig; readonly ChromaticAberration ca; readonly LensDistortion ld; readonly ColorAdjustments colAdj;
+        readonly Tonemapping tone; readonly Bloom bloom; readonly Vignette vig; readonly ChromaticAberration ca; readonly LensDistortion ld; readonly ColorAdjustments colAdj;
         // 効果音
-        readonly AudioSource audio; readonly AudioClip cDash, cSlip, cShove, cBump, cReady;
+        readonly AudioSource audio, music; readonly AudioSource[] pool = new AudioSource[8]; int poolI; readonly AudioClip cDash, cSlip, cShove, cBump, cReady, cPop, cWin, cGo;
+        float puffT;
         public bool PostOk { get; private set; }
 
         public SkillFx(MonoBehaviour host, Camera cam, Material fxAdd, Material[] ghostMats, Material skin)
@@ -65,21 +66,62 @@ namespace ShibuyaRush
                 var vgo = new GameObject("FxVolume"); vgo.transform.SetParent(host.transform);
                 var vol = vgo.AddComponent<Volume>(); vol.isGlobal = true; vol.priority = 5;
                 var prof = ScriptableObject.CreateInstance<VolumeProfile>();
-                bloom = prof.Add<Bloom>(true); bloom.threshold.Override(0.95f); bloom.intensity.Override(0.18f); bloom.scatter.Override(0.6f);
+                tone = prof.Add<Tonemapping>(true); tone.mode.Override(TonemappingMode.Neutral);
+                bloom = prof.Add<Bloom>(true); bloom.threshold.Override(0.9f); bloom.intensity.Override(0.28f); bloom.scatter.Override(0.65f); bloom.tint.Override(new Color(1f, .9f, .8f));
                 vig = prof.Add<Vignette>(true); vig.intensity.Override(0.12f); vig.smoothness.Override(0.5f);
                 ca = prof.Add<ChromaticAberration>(true); ca.intensity.Override(0f);
                 ld = prof.Add<LensDistortion>(true); ld.intensity.Override(0f);
-                colAdj = prof.Add<ColorAdjustments>(true); colAdj.saturation.Override(0f); colAdj.postExposure.Override(0f); colAdj.colorFilter.Override(Color.white);
+                colAdj = prof.Add<ColorAdjustments>(true); colAdj.saturation.Override(14f); colAdj.contrast.Override(10f); colAdj.postExposure.Override(0f); colAdj.colorFilter.Override(Color.white);
                 vol.sharedProfile = prof; PostOk = true;
             }
             catch (Exception e) { Debug.LogWarning("[Fx] post-processing unavailable: " + e.Message); }
             audio = host.gameObject.AddComponent<AudioSource>(); audio.playOnAwake = false; audio.spatialBlend = 0f; audio.volume = 0.7f;
+            for (int i = 0; i < pool.Length; i++) { pool[i] = host.gameObject.AddComponent<AudioSource>(); pool[i].playOnAwake = false; pool[i].spatialBlend = 0f; }
+            music = host.gameObject.AddComponent<AudioSource>(); music.playOnAwake = false; music.loop = true; music.volume = 0.22f; music.spatialBlend = 0f;
             var rng = new System.Random(5);
             cDash = Clip("dash", 0.55f, (t, d) => { float n = (float)(rng.NextDouble() * 2 - 1); float e = Mathf.Sin(Mathf.PI * Mathf.Clamp01(t / d)); return n * e * 0.5f * (1f - t / d * 0.6f) + Mathf.Sin(t * (180f + 900f * t / d) * 6.28f) * 0.18f * e; });
             cSlip = Clip("slip", 1.1f, (t, d) => { float e = Mathf.Exp(-t * 2.2f) * Mathf.Clamp01(t * 30f); float f = 110f * Mathf.Pow(8f, t / d); return (Mathf.Sin(t * f * 6.28f) * 0.35f + Mathf.Sin(t * f * 1.5f * 6.28f) * 0.2f + Mathf.Sin(t * 2400f * 6.28f) * 0.06f * Mathf.Sin(t * 14f)) * e; });
             cShove = Clip("shove", 0.6f, (t, d) => { float e = Mathf.Exp(-t * 7f); float n = (float)(rng.NextDouble() * 2 - 1); return (Mathf.Sin(t * (90f - 50f * t / d) * 6.28f) * 0.8f + n * 0.4f * Mathf.Exp(-t * 18f)) * e; });
             cBump = Clip("bump", 0.18f, (t, d) => { float e = Mathf.Exp(-t * 30f); return Mathf.Sin(t * 140f * 6.28f) * e * 0.7f; });
+            cPop = Clip("pop", 0.14f, (t, d) => Mathf.Sin(t * (700f + 900f * t / d) * 6.28f) * Mathf.Exp(-t * 28f) * 0.6f);
+            cGo = Clip("go", 0.4f, (t, d) => (Mathf.Sin(t * 1320f * 6.28f) + 0.5f * Mathf.Sin(t * 1980f * 6.28f)) * Mathf.Exp(-t * 7f) * 0.35f);
+            cWin = Clip("win", 1.1f, (t, d) => { float[] nt = { 523.25f, 659.25f, 783.99f, 1046.5f, 783.99f, 1046.5f }; int k = Mathf.Min(nt.Length - 1, (int)(t / 0.14f)); float lt = t - k * 0.14f; float tri = Mathf.Asin(Mathf.Sin(lt * nt[k] * 6.28f)) * 0.64f; return tri * Mathf.Exp(-lt * 6f) * 0.5f; });
+            music.clip = BuildMusic(); if (music.clip != null) music.Play();
             cReady = Clip("ready", 0.2f, (t, d) => Mathf.Sin(t * 1320f * 6.28f) * Mathf.Exp(-t * 14f) * 0.25f);
+        }
+
+        /// <summary>明るい4小節のループ(コード進行 C-Am-F-G、アルペジオ・ベース・キック・ハット)。コードで生成する。</summary>
+        static AudioClip BuildMusic()
+        {
+            const int rate = 22050; const float bpm = 124f; float stepT = 60f / bpm / 4f; int steps = 64; int n = (int)(rate * stepT * steps);
+            var data = new float[n]; var rng = new System.Random(3);
+            int[] roots = { 48, 45, 41, 43 }; int[][] chord = { new[] { 0, 4, 7, 12 }, new[] { 0, 3, 7, 12 }, new[] { 0, 4, 7, 12 }, new[] { 0, 4, 7, 11 } };
+            int[] pat = { 0, 1, 2, 1, 3, 2, 1, 2, 0, 1, 2, 3, 2, 1, 2, 1 };
+            Func<int, float> hz = m => 440f * Mathf.Pow(2f, (m - 69) / 12f);
+            for (int st = 0; st < steps; st++)
+            {
+                int bar = st / 16, k = st % 16; int root = roots[bar]; var ch = chord[bar];
+                int start = (int)(st * stepT * rate); int len = (int)(stepT * rate * 3);
+                float fl = hz(root + 24 + ch[pat[k]]);
+                for (int i = 0; i < len && start + i < n; i++)
+                {
+                    float t = i / (float)rate; float env = Mathf.Exp(-t * 11f);
+                    float tri = Mathf.Asin(Mathf.Sin(t * fl * 6.28318f)) * 0.64f;
+                    data[start + i] += tri * env * 0.30f;
+                }
+                if (k % 4 == 0)
+                {   // ベース(各拍)とキック
+                    float fb = hz(root);
+                    for (int i = 0; i < (int)(rate * 0.28f) && start + i < n; i++) { float t = i / (float)rate; data[start + i] += Mathf.Sin(t * fb * 6.28318f) * Mathf.Exp(-t * 7f) * 0.38f; }
+                    for (int i = 0; i < (int)(rate * 0.16f) && start + i < n; i++) { float t = i / (float)rate; data[start + i] += Mathf.Sin(t * (130f * Mathf.Exp(-t * 18f) + 42f) * 6.28318f) * Mathf.Exp(-t * 14f) * 0.55f; }
+                }
+                if (k % 4 == 2)
+                {   // ハット(裏拍)
+                    for (int i = 0; i < (int)(rate * 0.05f) && start + i < n; i++) { float t = i / (float)rate; data[start + i] += ((float)rng.NextDouble() * 2f - 1f) * Mathf.Exp(-t * 90f) * 0.18f; }
+                }
+            }
+            for (int i = 0; i < n; i++) data[i] = Mathf.Clamp(data[i], -0.95f, 0.95f);
+            var c = AudioClip.Create("bgm", n, 1, rate, false); c.SetData(data, 0); return c;
         }
 
         static AudioClip Clip(string name, float dur, Func<float, float, float> f)
@@ -90,7 +132,7 @@ namespace ShibuyaRush
         }
 
         /// <summary>中心から外へ薄くなるリング/ソフトな円のテクスチャ。</summary>
-        static Texture2D Radial(int n, float r0, float r1, bool ring)
+        public static Texture2D Radial(int n, float r0, float r1, bool ring)
         {
             var t = new Texture2D(n, n, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp };
             for (int y = 0; y < n; y++) for (int x = 0; x < n; x++)
@@ -137,10 +179,30 @@ namespace ShibuyaRush
         {
             shake = Mathf.Max(shake, 0.45f); SetFlash(new Color(1f, 1f, 1f, 0.12f), 0.1f);
             Burst(p + Vector3.up * 1f, new Vector3(dir.x, 0.3f, dir.y), 8, 4f, new Color(1f, 1f, 1f), 0.18f);
-            audio.PlayOneShot(cBump, 0.6f);
+            PlayBump();
         }
 
-        public void PlayReady() { audio.PlayOneShot(cReady); }
+        public void PlayReady() { Play(cReady, 0.8f, 1f); }
+        public void PlayGo() { Play(cGo, 0.9f, 1f); }
+        public void PlayWin() { Play(cWin, 0.9f, 1f); }
+        public void PlayPop(int combo) { Play(cPop, 0.7f, 1f + 0.035f * Mathf.Min(combo, 40)); }
+        public void PlayBump() { Play(cBump, 0.55f, UnityEngine.Random.Range(0.8f, 1.25f)); }
+        void Play(AudioClip c, float vol, float pitch)
+        {
+            var src = pool[poolI++ % pool.Length]; src.pitch = pitch; src.PlayOneShot(c, vol);
+        }
+
+        /// <summary>ゴールの紙吹雪。</summary>
+        public void Confetti(Vector3 p)
+        {
+            Color[] cs = { new Color(1f, .35f, .45f), new Color(1f, .85f, .25f), new Color(.35f, .85f, .5f), new Color(.35f, .65f, 1f), new Color(.8f, .5f, 1f), Color.white };
+            for (int i = 0; i < 220; i++)
+            {
+                var v = new Vector3(UnityEngine.Random.Range(-6f, 6f), UnityEngine.Random.Range(8f, 16f), UnityEngine.Random.Range(-6f, 6f));
+                var ep = new ParticleSystem.EmitParams { position = p + new Vector3(UnityEngine.Random.Range(-1.5f, 1.5f), 1f, UnityEngine.Random.Range(-1.5f, 1.5f)), velocity = v, startColor = cs[i % cs.Length], startSize = UnityEngine.Random.Range(0.25f, 0.5f), startLifetime = UnityEngine.Random.Range(1.6f, 2.6f) };
+                sparks.Emit(ep, 1);
+            }
+        }
 
         void SetFlash(Color c, float life) { flashCol = c; flashT = life; flashLife = life; }
         void SetVig(Color c, float life) { vigCol = c; vigT = life; vigLife = life; }
@@ -179,6 +241,9 @@ namespace ShibuyaRush
                 else if (pl.Slipping) target = 0.26f;                       // すり抜け中はスローモーション
                 Time.timeScale = target < Time.timeScale ? target : Mathf.MoveTowards(Time.timeScale, target, 5f * realDt);
             }
+            if (music != null) music.pitch = Mathf.Lerp(music.pitch, Mathf.Lerp(0.6f, 1f, Mathf.Clamp01((Time.timeScale - 0.2f) / 0.8f)), 1f - Mathf.Exp(-10f * realDt));
+            puffT -= realDt;
+            if (playing && pl.dashT > 0f && puffT <= 0f) { puffT = 0.045f; Burst(playerWorld + Vector3.up * 0.15f, Vector3.up, 2, 1.6f, new Color(1f, 1f, 1f, 0.5f), 0.45f); }
             if (!pl.Slipping && pl.dashT <= 0f && pl.shoveFx <= 0f && clockFreeze <= 0f) Active = Kind.None;
             // カメラ
             float want = pl.dashT > 0 ? 16f : pl.Slipping ? -12f : pl.shoveFx > 0 ? 9f : 0f;
@@ -216,8 +281,8 @@ namespace ShibuyaRush
                 ca.intensity.value = Mathf.Lerp(ca.intensity.value, tCa, 1f - Mathf.Exp(-12f * realDt));
                 ld.intensity.value = Mathf.Lerp(ld.intensity.value, tLd, 1f - Mathf.Exp(-12f * realDt));
                 vig.intensity.value = Mathf.Lerp(vig.intensity.value, 0.12f + sl * 0.45f + ds * 0.2f, 1f - Mathf.Exp(-10f * realDt));
-                bloom.intensity.value = Mathf.Lerp(bloom.intensity.value, 0.18f + sl * 1.1f + ds * 0.5f + pulse * 1.2f, 1f - Mathf.Exp(-12f * realDt));
-                colAdj.saturation.value = Mathf.Lerp(colAdj.saturation.value, sl * -55f + ds * 25f, 1f - Mathf.Exp(-10f * realDt));
+                bloom.intensity.value = Mathf.Lerp(bloom.intensity.value, 0.28f + sl * 1.1f + ds * 0.5f + pulse * 1.2f, 1f - Mathf.Exp(-12f * realDt));
+                colAdj.saturation.value = Mathf.Lerp(colAdj.saturation.value, 14f + sl * -65f + ds * 25f, 1f - Mathf.Exp(-10f * realDt));
                 colAdj.colorFilter.value = Color.Lerp(colAdj.colorFilter.value, sl > 0 ? new Color(0.75f, 0.9f, 1.15f) : Color.white, 1f - Mathf.Exp(-10f * realDt));
             }
         }

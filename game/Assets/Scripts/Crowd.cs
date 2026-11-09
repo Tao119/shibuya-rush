@@ -13,7 +13,7 @@ namespace ShibuyaRush
         {
             public int edge, toNode, hub, pending; public float t;     // 辺上の位置(fromNodeからの距離)
             public float speed, lateral, phase, scale; public int tint;
-            public Vector2 pos, off, vel; public float yaw, lift, air, airV;
+            public Vector2 pos, off, vel; public float yaw, lift, air, airV, spin;
         }
         readonly PedGraph g; readonly Agent[] a; readonly HumanoidRenderer hr;
         readonly int[] cellHead = new int[1 << 17]; readonly int[] next;
@@ -155,7 +155,7 @@ namespace ShibuyaRush
                 ag.pos += delta * Mathf.Min(1f, 8f * dt);
                 if (delta.sqrMagnitude > 1e-4f) ag.yaw = Mathf.LerpAngle(ag.yaw, Mathf.Atan2(delta.x, delta.y) * Mathf.Rad2Deg, 8f * dt);
                 if (ag.pending < 0) ag.phase += ag.speed * dt * 5.2f;
-                if (ag.airV != 0f || ag.air > 0f) { ag.air += ag.airV * dt; ag.airV -= 16f * dt; if (ag.air <= 0f) { ag.air = 0f; ag.airV = 0f; } }
+                if (ag.airV != 0f || ag.air > 0f) { ag.spin += 640f * dt; ag.air += ag.airV * dt; ag.airV -= 16f * dt; if (ag.air <= 0f) { ag.air = 0f; ag.airV = 0f; ag.spin = 0f; } }
             }
             Waiting = waiting;
             for (int i = 0; i < a.Length; i++)    // 近すぎる者どうしを少し離す
@@ -185,7 +185,7 @@ namespace ShibuyaRush
                 if (d2 > far2) continue;
                 if (d2 > 100f && Vector2.Dot(d, f) < 0.25f * Mathf.Sqrt(d2)) continue; // 視野外(約±75度の外)
                 var p = new Vector3(a[i].pos.x, hf.Height(a[i].pos.x, a[i].pos.y) + a[i].lift + a[i].air, a[i].pos.y);
-                if (d2 < near2) hr.Add(p, a[i].yaw, a[i].phase, 1f, a[i].tint, a[i].scale);
+                if (d2 < near2) hr.Add(p, a[i].yaw, a[i].phase, a[i].air > 0f ? 1.8f : 1f, a[i].tint, a[i].scale, a[i].spin);
                 else hr.AddFar(p, a[i].tint, a[i].scale);
             }
         }

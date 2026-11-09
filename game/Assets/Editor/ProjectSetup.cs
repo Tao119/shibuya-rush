@@ -44,13 +44,27 @@ public static class ProjectSetup
         var tex = new Texture2D(N, N, TextureFormat.RGBA32, false);
         for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
         {
-            bool win = x >= 12 && x < 52 && y >= 18 && y < 50;
+            bool win = x >= 12 && x < 52 && y >= 18 && y < 50; bool frame = !win && x >= 9 && x < 55 && y >= 15 && y < 53 && (x < 12 || x >= 52 || y < 18 || y >= 50);
             bool sill = x >= 10 && x < 54 && y >= 15 && y < 18;
-            tex.SetPixel(x, y, win ? new Color(.30f, .38f, .50f) : sill ? new Color(.78f, .78f, .78f) : Color.white);
+            tex.SetPixel(x, y, win ? new Color(.46f, .64f, .88f) : frame ? new Color(1f, 1f, 1f) : sill ? new Color(.82f, .82f, .84f) : new Color(1f, 1f, 1f));
         }
         File.WriteAllBytes(path, tex.EncodeToPNG()); AssetDatabase.ImportAsset(path);
         var imp = (TextureImporter)AssetImporter.GetAtPath(path);
         imp.wrapMode = TextureWrapMode.Repeat; imp.mipmapEnabled = true; imp.filterMode = FilterMode.Bilinear; imp.anisoLevel = 4; imp.sRGBTexture = true;
+        imp.SaveAndReimport();
+        return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+    }
+
+    /// <summary>窓だけ光る発光マスク(夕暮れの窓明かり)。</summary>
+    static Texture2D MakeFacadeEmission()
+    {
+        const string path = "Assets/Resources/FacadeEmission.png"; const int N = 64;
+        var tex = new Texture2D(N, N, TextureFormat.RGBA32, false);
+        for (int y = 0; y < N; y++) for (int x = 0; x < N; x++)
+            tex.SetPixel(x, y, (x >= 14 && x < 50 && y >= 20 && y < 48) ? new Color(1f, 1f, 1f) : Color.black);
+        File.WriteAllBytes(path, tex.EncodeToPNG()); AssetDatabase.ImportAsset(path);
+        var imp = (TextureImporter)AssetImporter.GetAtPath(path);
+        imp.wrapMode = TextureWrapMode.Repeat; imp.mipmapEnabled = true; imp.filterMode = FilterMode.Bilinear; imp.sRGBTexture = true;
         imp.SaveAndReimport();
         return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
     }
@@ -77,10 +91,17 @@ public static class ProjectSetup
     {
         Directory.CreateDirectory(Mats); Directory.CreateDirectory("Assets/Scenes");
         SetupUrp(); PlayerSettings.colorSpace = ColorSpace.Linear;
-        Mat("Ground", new Color(0.60f, 0.63f, 0.58f)); Mat("Road", new Color(0.27f, 0.28f, 0.31f)).SetFloat("_Cull", 0f); Mat("Walkway", new Color(0.74f, 0.71f, 0.65f)).SetFloat("_Cull", 0f);
-        Color[] b = { new Color(.88f,.86f,.82f), new Color(.76f,.81f,.88f), new Color(.90f,.79f,.76f), new Color(.78f,.88f,.81f), new Color(.92f,.89f,.74f), new Color(.82f,.77f,.88f) };
-        var facade = MakeFacade();
-        for (int i = 0; i < b.Length; i++) { var bm = Mat("Bld" + i, b[i], 0.15f); bm.SetTexture("_BaseMap", facade); }
+        Mat("Ground", new Color(0.62f, 0.78f, 0.60f)); Mat("Road", new Color(0.36f, 0.38f, 0.48f), 0.12f).SetFloat("_Cull", 0f); Mat("Walkway", new Color(0.93f, 0.84f, 0.72f)).SetFloat("_Cull", 0f);
+        Mat("Marking", new Color(0.98f, 0.98f, 0.96f), 0.1f).SetFloat("_Cull", 0f);
+        Color[] b = { new Color(1f,.86f,.78f), new Color(.78f,.95f,.86f), new Color(.76f,.87f,1f), new Color(.87f,.80f,1f),
+                      new Color(1f,.95f,.74f), new Color(1f,.80f,.88f), new Color(.97f,.93f,.86f), new Color(.74f,.88f,.90f) };
+        var facade = MakeFacade(); var emis = MakeFacadeEmission();
+        for (int i = 0; i < b.Length; i++)
+        {
+            var bm = Mat("Bld" + i, b[i], 0.2f); bm.SetTexture("_BaseMap", facade);
+            bm.EnableKeyword("_EMISSION"); bm.SetTexture("_EmissionMap", emis); bm.SetColor("_EmissionColor", new Color(1.0f, 0.72f, 0.38f) * 0.55f);
+            bm.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+        }
         Color[] t = { new Color(.90f,.25f,.25f), new Color(.2f,.5f,.9f), new Color(.25f,.75f,.4f), new Color(.95f,.8f,.2f), new Color(.7f,.35f,.85f),
                       new Color(.95f,.55f,.7f), new Color(.15f,.75f,.8f), new Color(.92f,.92f,.92f), new Color(.25f,.25f,.3f), new Color(.6f,.4f,.25f) };
         for (int i = 0; i < t.Length; i++) Mat("Tint" + i, t[i]);
@@ -97,13 +118,16 @@ public static class ProjectSetup
 
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         var camGo = new GameObject("Main Camera") { tag = "MainCamera" }; var cam = camGo.AddComponent<Camera>();
-        cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = new Color(0.62f, 0.78f, 0.95f); cam.farClipPlane = 700; cam.fieldOfView = 62;
+        cam.clearFlags = CameraClearFlags.Skybox; cam.backgroundColor = new Color(0.62f, 0.78f, 0.95f); cam.farClipPlane = 700; cam.fieldOfView = 62;
         camGo.AddComponent<AudioListener>(); camGo.AddComponent<UniversalAdditionalCameraData>().antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
-        var sun = new GameObject("Sun"); var l = sun.AddComponent<Light>(); l.type = LightType.Directional; l.intensity = 1.1f; l.color = new Color(1f, .96f, .88f);
-        l.shadows = LightShadows.Soft; l.shadowStrength = 0.75f; sun.transform.rotation = Quaternion.Euler(52, -35, 0);
-        RenderSettings.ambientMode = AmbientMode.Flat; RenderSettings.ambientLight = new Color(.42f, .47f, .56f);
-        RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear; RenderSettings.fogColor = new Color(.62f, .78f, .95f);
-        RenderSettings.fogStartDistance = 160; RenderSettings.fogEndDistance = 520;
+        var sun = new GameObject("Sun"); var l = sun.AddComponent<Light>(); l.type = LightType.Directional; l.intensity = 1.45f; l.color = new Color(1f, .82f, .62f);   // 夕方の暖かい光
+        l.shadows = LightShadows.Soft; l.shadowStrength = 0.6f; sun.transform.rotation = Quaternion.Euler(30, -48, 0);
+        var sky = AssetDatabase.LoadAssetAtPath<Material>($"{Mats}/Sky.mat"); if (sky == null) { sky = new Material(Shader.Find("Skybox/Procedural")); AssetDatabase.CreateAsset(sky, $"{Mats}/Sky.mat"); }
+        sky.SetFloat("_SunSize", 0.06f); sky.SetFloat("_SunSizeConvergence", 5f); sky.SetFloat("_AtmosphereThickness", 1.25f); sky.SetColor("_SkyTint", new Color(.55f, .62f, .95f)); sky.SetColor("_GroundColor", new Color(.85f, .75f, .72f)); sky.SetFloat("_Exposure", 1.35f);
+        RenderSettings.skybox = sky; RenderSettings.sun = l;
+        RenderSettings.ambientMode = AmbientMode.Trilight; RenderSettings.ambientSkyColor = new Color(.58f, .70f, .98f); RenderSettings.ambientEquatorColor = new Color(.95f, .72f, .66f); RenderSettings.ambientGroundColor = new Color(.5f, .42f, .44f);
+        RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear; RenderSettings.fogColor = new Color(1f, .83f, .74f);
+        RenderSettings.fogStartDistance = 140; RenderSettings.fogEndDistance = 560;
         new GameObject("GameManager").AddComponent<GameManager>();
         EditorSceneManager.SaveScene(scene, "Assets/Scenes/Main.unity");
         EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene("Assets/Scenes/Main.unity", true) };

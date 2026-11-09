@@ -7,7 +7,7 @@ namespace ShibuyaRush
     /// <summary>city.json から地面・道路・建物のメッシュを作り、建物との衝突判定も提供する。</summary>
     public class CityBuilder
     {
-        public const int PaletteSize = 6;
+        public const int PaletteSize = 8;
         const float Cell = 25f;
         readonly Dictionary<long, List<int>> grid = new Dictionary<long, List<int>>();
         readonly List<Vector2[]> footprints = new List<Vector2[]>();
@@ -17,12 +17,13 @@ namespace ShibuyaRush
 
         static long Key(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
 
-        public GameObject Build(CityData city, Material ground, Material road, Material walkway, Material[] palette)
+        public GameObject Build(CityData city, Material ground, Material road, Material walkway, Material[] palette, Material marking = null)
         {
             var root = new GameObject("City");
             MakeGround(root.transform, ground);
             MakeRoads(root.transform, city, road, walkway);
             MakeBuildings(root.transform, city, palette);
+            if (marking != null) MakeMarkings(root.transform, city, marking);
             return root;
         }
 
@@ -93,6 +94,27 @@ namespace ShibuyaRush
             MeshObject(parent, "Roads", ToMesh(rv, ri), road);
             MeshObject(parent, "Walkways", ToMesh(wv, wi), walkway);
             MeshObject(parent, "Pillars", ToMesh(pv, pi), walkway);
+        }
+
+        /// <summary>横断歩道の白線(車の進行方向に長いしま模様)。</summary>
+        void MakeMarkings(Transform parent, CityData city, Material mat)
+        {
+            var v = new List<Vector3>(); var t = new List<int>();
+            foreach (var r in city.roads)
+            {
+                if (r.cross == 0 || r.tunnel || r.p.Length < 4) continue;
+                var a = new Vector2(r.p[0], r.p[1]); var b = new Vector2(r.p[r.p.Length - 2], r.p[r.p.Length - 1]);
+                var d = b - a; float L = d.magnitude; if (L < 3f) continue; d /= L; var n = new Vector2(-d.y, d.x);
+                float lift = Mathf.Max(0f, CityData.Lift(r, L * 0.5f, L)); float half = 1.9f;
+                for (float s = 0.5f; s + 0.5f < L; s += 0.95f)
+                {
+                    var c = a + d * s; int q = v.Count;
+                    v.Add(Pt(c - d * 0.22f - n * half, 0.07f + lift)); v.Add(Pt(c - d * 0.22f + n * half, 0.07f + lift));
+                    v.Add(Pt(c + d * 0.22f + n * half, 0.07f + lift)); v.Add(Pt(c + d * 0.22f - n * half, 0.07f + lift));
+                    t.Add(q); t.Add(q + 1); t.Add(q + 2); t.Add(q); t.Add(q + 2); t.Add(q + 3);
+                }
+            }
+            if (v.Count > 0) MeshObject(parent, "Markings", ToMesh(v, t), mat);
         }
 
         static void AddPillar(List<Vector3> v, List<int> t, Vector2 c, float groundY, float lift)

@@ -16,33 +16,33 @@ namespace ShibuyaRush
         public HumanoidRenderer(Material[] tints, Material pants, Material skin)
         {
             this.tints = tints; this.pants = pants; this.skin = skin;
-            torso = HumanoidMesh.Box(new Vector3(0.46f, 0.55f, 0.26f), false);
-            head = HumanoidMesh.Sphere(0.2f);
-            arm = HumanoidMesh.Box(new Vector3(0.12f, 0.6f, 0.12f), true);
-            leg = HumanoidMesh.Box(new Vector3(0.17f, 0.85f, 0.17f), true);
+            torso = HumanoidMesh.Capsule(0.27f, 0.78f, false);       // 丸いデフォルメ体型(胴・頭・手足がカプセルと球)
+            head = HumanoidMesh.Sphere(0.27f);
+            arm = HumanoidMesh.Capsule(0.085f, 0.6f, true, 8, 3);
+            leg = HumanoidMesh.Capsule(0.115f, 0.78f, true, 8, 3);
             torsoL = new List<Matrix4x4>[tints.Length]; armL = new List<Matrix4x4>[tints.Length];
             for (int i = 0; i < tints.Length; i++) { torsoL[i] = new List<Matrix4x4>(); armL[i] = new List<Matrix4x4>(); }
         }
 
         /// <summary>1人分を追加。swing=0..1 (歩き/走りの振り幅)。</summary>
-        public void Add(Vector3 pos, float yawDeg, float phase, float swing, int tint, float scale, float lean = 0f)
+        public void Add(Vector3 pos, float yawDeg, float phase, float swing, int tint, float scale, float lean = 0f, float sy = 1f)
         {
             float s = Mathf.Sin(phase), bob = Mathf.Abs(s) * 0.05f * swing;
-            var root = Matrix4x4.TRS(pos + new Vector3(0, bob * scale, 0), Quaternion.Euler(lean, yawDeg, 0), Vector3.one * scale);
+            var root = Matrix4x4.TRS(pos + new Vector3(0, bob * scale, 0), Quaternion.Euler(lean, yawDeg, 0), new Vector3(1f / Mathf.Sqrt(sy), sy, 1f / Mathf.Sqrt(sy)) * scale);
             float ang = s * 38f * swing;
             tint %= tints.Length;
-            torsoL[tint].Add(root * Matrix4x4.TRS(new Vector3(0, 0.85f, 0), Quaternion.identity, Vector3.one));
-            headL.Add(root * Matrix4x4.TRS(new Vector3(0, 1.62f, 0), Quaternion.identity, Vector3.one));
-            armL[tint].Add(root * Matrix4x4.TRS(new Vector3(-0.30f, 1.38f, 0), Quaternion.Euler(ang * 1.1f, 0, 4), Vector3.one));
-            armL[tint].Add(root * Matrix4x4.TRS(new Vector3(0.30f, 1.38f, 0), Quaternion.Euler(-ang * 1.1f, 0, -4), Vector3.one));
-            legL.Add(root * Matrix4x4.TRS(new Vector3(-0.11f, 0.85f, 0), Quaternion.Euler(-ang, 0, 0), Vector3.one));
-            legL.Add(root * Matrix4x4.TRS(new Vector3(0.11f, 0.85f, 0), Quaternion.Euler(ang, 0, 0), Vector3.one));
+            torsoL[tint].Add(root * Matrix4x4.TRS(new Vector3(0, 0.72f, 0), Quaternion.identity, Vector3.one));
+            headL.Add(root * Matrix4x4.TRS(new Vector3(0, 1.70f, 0), Quaternion.identity, Vector3.one));
+            armL[tint].Add(root * Matrix4x4.TRS(new Vector3(-0.35f, 1.34f, 0), Quaternion.Euler(ang * 1.1f, 0, 4), Vector3.one));
+            armL[tint].Add(root * Matrix4x4.TRS(new Vector3(0.35f, 1.34f, 0), Quaternion.Euler(-ang * 1.1f, 0, -4), Vector3.one));
+            legL.Add(root * Matrix4x4.TRS(new Vector3(-0.14f, 0.78f, 0), Quaternion.Euler(-ang, 0, 0), Vector3.one));
+            legL.Add(root * Matrix4x4.TRS(new Vector3(0.14f, 0.78f, 0), Quaternion.Euler(ang, 0, 0), Vector3.one));
         }
 
         /// <summary>遠景用: 胴の箱を縦に伸ばした1個だけで人を表す。</summary>
         public void AddFar(Vector3 pos, int tint, float scale)
         {
-            torsoL[tint % tints.Length].Add(Matrix4x4.TRS(pos, Quaternion.identity, new Vector3(1.1f, 2.9f, 1.1f) * scale));
+            torsoL[tint % tints.Length].Add(Matrix4x4.TRS(pos, Quaternion.identity, new Vector3(1.15f, 2.15f, 1.15f) * scale));
         }
 
         public void Flush()

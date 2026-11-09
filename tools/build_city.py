@@ -40,7 +40,7 @@ for e in json.load(open(RAW / "roads.json"))["elements"]:
     t = e["tags"]; hw = t["highway"].replace("_link", "")
     if t.get("area") == "yes": continue
     w = num(t.get("width")) or WIDTH.get(hw, 5)
-    roads.append({"cls": hw, "name": t.get("name", ""), "w": w, "walk": hw not in ("motorway", "trunk"), "sig": 1 if t.get("crossing") == "traffic_signals" else 0, "lift": lift_of(t) if hw != "steps" else 0.0,
+    roads.append({"cls": hw, "name": t.get("name", ""), "w": w, "walk": hw not in ("motorway", "trunk"), "sig": 1 if t.get("crossing") == "traffic_signals" else 0, "lift": lift_of(t) if hw != "steps" else 0.0, "cross": 1 if (t.get("footway") == "crossing" or t.get("highway") == "crossing") else 0,
                   "bridge": t.get("bridge") == "yes" or t.get("layer") in ("1", "2"),
                   "tunnel": t.get("tunnel") == "yes" or (num(t.get("layer")) or 0) < 0,
                   "p": flat(g)})
@@ -115,9 +115,9 @@ for e in json.load(open(RAW / "buildings.json"))["elements"]:
 
 pois = []
 want = {
-    136691387: ("メガドンキ(MEGAドン・キホーテ渋谷本店)", "way"),
+    136691387: ("メガドンキ 渋谷本店", "way"),
     5296991943: ("SHIBUYA TSUTAYA", "node"),
-    12452359640: ("TSUTAYA(東口側)", "node"),
+    12452359640: ("TSUTAYA 東口側", "node"),
     617560918: ("渋谷スクランブルスクエア", "way"),
     204091879: ("渋谷ヒカリエ", "way"),
     7544706: ("渋谷マークシティ", "relation"),

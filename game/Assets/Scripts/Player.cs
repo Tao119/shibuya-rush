@@ -16,8 +16,8 @@ namespace ShibuyaRush
         public float speedNow, slowFactor = 1f, lift;
         public float dashT, slipT, shoveFx, stagger;                 // 発動中・よろけの残り秒
         public float dashCd, slipCd, shoveCd;                        // クールダウン残り秒
-        public bool evDash, evSlip, evShove, evBump;                 // 発動・衝突の通知(GameManagerが読んで消す)
-        public int bumps, plowed; public Vector2 bumpDir;
+        public bool evDash, evSlip, evShove, evBump, evBump2;                 // 発動・衝突の通知(GameManagerが読んで消す)
+        public int bumps, plowed, shoved; public Vector2 bumpDir;
         public bool Slipping => slipT > 0f;
         readonly CityBuilder city; readonly Crowd crowd; readonly PedGraph graph; readonly List<int> hits = new List<int>();
         Vector2 vel; float bumpCd;
@@ -88,6 +88,7 @@ namespace ShibuyaRush
             if (!city.Blocked(n.x, n.y)) { pos = n; return; }
             if (!city.Blocked(pos.x + d.x, pos.y)) pos.x += d.x;
             else if (!city.Blocked(pos.x, pos.y + d.y)) pos.y += d.y;
+            else if (city.Blocked(pos.x, pos.y)) pos = n;   // すでに壁の余白に入ってしまっている場合は、抜け出すために動けるようにする
             else vel = Vector2.zero;
         }
 
@@ -100,6 +101,7 @@ namespace ShibuyaRush
                 if (Mathf.Abs(crowd.LiftOf(i) - lift) > 1.5f) continue;
                 var d = crowd.PosOf(i) - pos; float dist = d.magnitude; if (dist < 1e-3f) continue;
                 if (Vector2.Dot(d / dist, fwd) < 0.2f) continue;
+                shoved++;
                 var side = new Vector2(-fwd.y, fwd.x) * Mathf.Sign(Vector2.Dot(d, new Vector2(-fwd.y, fwd.x)) + 0.01f);
                 crowd.Launch(i, (d / dist * 4f + side * 9f) * (1.3f - dist / 8f), 6f);
             }

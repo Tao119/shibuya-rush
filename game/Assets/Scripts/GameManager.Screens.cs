@@ -160,19 +160,19 @@ namespace ShibuyaRush
             if (Btn(play, "", new Color(.25f, .78f, .38f), 22, !modal, false)) StartLevel(homeSpec);
             Label(new Rect(play.x, play.y + 4, play.width, play.height * 0.62f), "PLAY", new GUIStyle(huge) { fontSize = 54 }, Color.white);
             Label(new Rect(play.x, play.yMax - 32, play.width, 26), homeSpec.title, St(17), new Color(1, 1, 1, .92f));
-            float ny = play.y - 14f - 70f; float nw = (bw - 3 * 8f) / 4f;
+            float ny = play.y - 14f - 84f; float nw = (bw - 3 * 8f) / 4f;
             string[] names = { "ショップ", "ミッション", "ギフト", "フリー" }; Color[] cols = { Candy[0], Candy[3], Candy[1], Candy[2] };
             for (int i = 0; i < 4; i++)
             {
-                var nr = new Rect(bx + i * (nw + 8f), ny, nw, 70f);
-                if (Btn(nr, names[i], cols[i], 15, !modal))
+                var nr = new Rect(bx + i * (nw + 8f), ny, nw, 84f);
+                if (Btn(nr, names[i], cols[i], 17, !modal))
                 {
                     if (i == 0) { panel = UiPanel.Shop; shopTab = 0; } else if (i == 1) panel = UiPanel.Missions; else if (i == 2) { if (Store.GiftReady) dailyPopup = true; else { toast = "ギフトは明日また受け取れます"; toastT = 1.6f; } } else panel = UiPanel.Free;
                 }
                 bool badge = (i == 1 && Store.ClaimableCount > 0) || (i == 2 && Store.GiftReady); if (badge) Disc(new Rect(nr.xMax - 18, nr.y - 8, 26, 26), new Color(1f, .2f, .25f));
                 if (badge) Label(new Rect(nr.xMax - 18, nr.y - 8, 26, 26), "!", St(18), Color.white);
             }
-            var sg = new Rect(L.x0 + m, lp.yMax + 8, 112, 34); if (Btn(sg, "せってい", new Color(.4f, .38f, .62f, .95f), 15, !modal)) panel = UiPanel.Settings;
+            var sg = new Rect(L.x0 + m, lp.yMax + 8, 128, 52); if (Btn(sg, "せってい", new Color(.4f, .38f, .62f, .95f), 18, !modal)) panel = UiPanel.Settings;
             // 目的地カード
             float cw = po ? Mathf.Min(W - 28f, 460f) : 420f; float chh = 148f;
             var card = po ? new Rect(W / 2 - cw / 2, ny - 14f - chh, cw, chh) : new Rect(L.x0 + m + 6f, (L.y0 + L.y1) / 2f - chh / 2f + 30f, cw, chh);
@@ -206,11 +206,17 @@ namespace ShibuyaRush
             float w = Mathf.Min(W - 20f, maxW), h = Mathf.Min(H - (L.y0 + (H - L.y1)) - 20f, maxH); return new Rect(W / 2 - w / 2, (L.y0 + L.y1) / 2f - h / 2f, w, h);
         }
 
-        void ModalHeader(Rect r, string title, out Rect body)
+        /// <summary>全画面共通の戻るボタン(左上・大きく・矢印つき)。</summary>
+        bool BackBtn(Rect r, string text = "‹ もどる") => Btn(r, text, new Color(.9f, .4f, .5f), 20);
+
+        void ModalHeader(Rect r, string title, out Rect body) { body = new Rect(r.x + 10, r.y + 74, r.width - 20, r.height - 84); }
+
+        /// <summary>リストのはみ出しを隠したうえで、戻るボタンとタイトルを描く。</summary>
+        void ModalHeaderTop(Rect r, string title)
         {
-            Label(new Rect(r.x + 16, r.y + 8, r.width - 130, 44), title, St(30, TextAnchor.MiddleLeft), Color.white);
-            if (Btn(new Rect(r.xMax - 104, r.y + 12, 92, 38), "とじる", new Color(.9f, .4f, .5f), 16)) { panel = UiPanel.None; }
-            body = new Rect(r.x + 10, r.y + 58, r.width - 20, r.height - 68);
+            Panel(new Rect(r.x, r.y - 30, r.width, 104), new Color(.17f, .15f, .38f, 1f), 0f);
+            if (BackBtn(new Rect(r.x + 12, r.y + 10, 128, 56))) panel = UiPanel.None;
+            Label(new Rect(r.x + 150, r.y + 10, r.width - 160, 56), title, St(30, TextAnchor.MiddleLeft), Color.white);
         }
 
         // ================== ミッション ==================
@@ -249,15 +255,14 @@ namespace ShibuyaRush
                 Label(new Rect(rr.xMax - 106, rr.y, 96, rr.height), got ? "達成!" : "+" + a.reward, St(19, TextAnchor.MiddleRight), got ? new Color(.7f, 1f, .8f) : new Color(1f, .9f, .4f));
             }
             // はみ出し分を隠す
-            Panel(new Rect(r.x, r.y - 30, r.width, 88), new Color(.17f, .15f, .38f, 1f), 0f); Label(new Rect(r.x + 16, r.y + 8, r.width - 130, 44), "ミッション", St(30, TextAnchor.MiddleLeft), Color.white);
-            if (Btn(new Rect(r.xMax - 104, r.y + 12, 92, 38), "とじる", new Color(.9f, .4f, .5f), 16)) panel = UiPanel.None;
+            ModalHeaderTop(r, "ミッション");
             Panel(new Rect(r.x, body.yMax, r.width, 40), new Color(.17f, .15f, .38f, 1f), 0f);
         }
 
         // ================== せってい ==================
         void DrawSettings(float W, float H)
         {
-            Dim(); var r = ModalRect(W, H, 520f, 560f); Panel(r, new Color(.17f, .15f, .38f, 1f), 6f); ModalHeader(r, "せってい", out var body); var d = Store.D;
+            Dim(); var r = ModalRect(W, H, 520f, 560f); Panel(r, new Color(.17f, .15f, .38f, 1f), 6f); ModalHeader(r, "せってい", out var body); ModalHeaderTop(r, "せってい"); var d = Store.D;
             float y = body.y + 4f;
             void Toggle(string name, bool on, Action<bool> set)
             {
@@ -294,15 +299,14 @@ namespace ShibuyaRush
                 if (best < 9000f) Label(new Rect(rr.xMax - 118, rr.y + 40, 108, 28), $"BEST {best:F1}s", St(14, TextAnchor.MiddleRight), Color.white);
                 if (hit) StartLevel(levels.MakeFree(i));
             }
-            Panel(new Rect(r.x, r.y - 30, r.width, 88), new Color(.17f, .15f, .38f, 1f), 0f); Label(new Rect(r.x + 16, r.y + 8, r.width - 130, 44), "フリー (制限なし)", St(30, TextAnchor.MiddleLeft), Color.white);
-            if (Btn(new Rect(r.xMax - 104, r.y + 12, 92, 38), "とじる", new Color(.9f, .4f, .5f), 16)) panel = UiPanel.None;
+            ModalHeaderTop(r, "フリー (制限なし)");
         }
 
         // ================== デイリーギフト ==================
         void DrawDaily(float W, float H)
         {
             if (!dailyPopup) return;
-            Dim(0.7f); bool wide = W > 700f; float cw = Mathf.Min(W - 20f, wide ? 720f : 440f), chh = wide ? 330f : 470f; var r = new Rect(W / 2 - cw / 2, (L.y0 + L.y1) / 2f - chh / 2f, cw, chh);
+            Dim(0.7f); bool wide = W > 700f; float cw = Mathf.Min(W - 20f, wide ? 720f : 440f), chh = wide ? 390f : 530f; var r = new Rect(W / 2 - cw / 2, (L.y0 + L.y1) / 2f - chh / 2f, cw, chh);
             Panel(r, new Color(.17f, .15f, .38f, 1f), 6f);
             Label(new Rect(r.x, r.y + 8, r.width, 44), "ログインボーナス", St(30), new Color(1f, .9f, .4f));
             int today = Store.GiftDay; int perRow = wide ? 7 : 4; float gap = 8f; float cell = Mathf.Min(86f, (r.width - 24f - gap * (perRow - 1)) / perRow);
@@ -317,7 +321,8 @@ namespace ShibuyaRush
                 CoinIcon(new Rect(cc.center.x - 15, cc.y + cc.height * 0.3f, 30, 30));
                 Label(new Rect(cc.x, cc.yMax - 32, cc.width, 28), past ? "済" : "" + Store.GiftCoins[i], St(i == 6 ? 19 : 17), i == 6 ? new Color(1f, .95f, .4f) : Color.white);
             }
-            float by = r.yMax - 66f; float bw = (r.width - 16f * 3) / 2f;
+            float by = r.yMax - 130f; float bw = (r.width - 16f * 3) / 2f;
+            if (Btn(new Rect(r.center.x - 80f, r.yMax - 66f, 160f, 52f), "あとで", new Color(.45f, .42f, .66f), 18)) dailyPopup = false;
             if (Btn(new Rect(r.x + 16, by, bw, 52), "うけとる", new Color(.25f, .78f, .38f), 22)) { int g = Store.ClaimGift(1); toast = $"+{g} コイン!"; toastT = 1.8f; dailyPopup = false; fx.PlayCash(); }
             if (Btn(new Rect(r.x + 32 + bw, by, bw, 52), "広告で ×2", new Color(1f, .6f, .2f), 22)) ShowRewardedAd("ログインボーナス ×2", () => { int g = Store.ClaimGift(2); toast = $"+{g} コイン!"; toastT = 1.8f; dailyPopup = false; fx.PlayCash(); });
         }
@@ -329,9 +334,9 @@ namespace ShibuyaRush
             float px = po ? -30f : W * 0.42f, py = po ? H * 0.46f : -30f; var P = new Rect(px, py, po ? W + 60f : W - px + 30f, po ? H - py + 40f : H + 60f);
             Panel(P, new Color(.17f, .15f, .38f, 1f), 0f);
             float ix = po ? L.x0 + 12f : W * 0.42f + 14f, iy = po ? H * 0.46f + 10f : L.y0 + 10f, iw = po ? (L.x1 - L.x0) - 24f : (L.x1 - ix - 12f), ih = (po ? L.y1 : L.y1) - iy - 10f;
-            var tabsR = new Rect(ix, iy + 54f, iw, 40f); var foot = new Rect(ix, iy + ih - 50f, iw, 48f); var list = new Rect(ix, tabsR.yMax + 8f, iw, foot.y - 8f - (tabsR.yMax + 8f));
+            var tabsR = new Rect(ix, iy + 64f, iw, 50f); var foot = new Rect(ix, iy + ih - 58f, iw, 56f); var list = new Rect(ix, tabsR.yMax + 8f, iw, foot.y - 8f - (tabsR.yMax + 8f));
             // リスト
-            string[] tabs = { "アップグレード", "スキン", "ぼうし", "トレイル" }; float rowH = 74f; int count = shopTab == 0 ? Meta.Upgrades.Length : shopTab == 1 ? Meta.Skins.Length : shopTab == 2 ? Meta.Hats.Length : Meta.Trails.Length;
+            string[] tabs = { "アップグレード", "スキン", "ぼうし", "トレイル" }; float rowH = 84f; int count = shopTab == 0 ? Meta.Upgrades.Length : shopTab == 1 ? Meta.Skins.Length : shopTab == 2 ? Meta.Hats.Length : Meta.Trails.Length;
             ScrollHandle(list, ref shopScroll[shopTab], count * (rowH + 6f)); float y = list.y - shopScroll[shopTab];
             for (int i = 0; i < count; i++)
             {
@@ -340,11 +345,11 @@ namespace ShibuyaRush
             }
             // ヘッダ・タブ・フッタ(リストのはみ出しを隠す)
             Panel(new Rect(P.x, P.y - 30f, P.width, tabsR.yMax + 8f - P.y + 30f), new Color(.17f, .15f, .38f, 1f), 0f);
-            Label(new Rect(ix, iy, 160, 48), "ショップ", St(30, TextAnchor.MiddleLeft), Color.white);
-            CoinPill(new Rect(ix + iw - 100f - 182f, iy + 4f, 176f, 42f), d.coins);
-            if (Btn(new Rect(ix + iw - 96f, iy + 6f, 96f, 38f), "もどる", new Color(.9f, .4f, .5f), 16)) { panel = UiPanel.None; Store.Commit(); }
+            if (BackBtn(new Rect(ix, iy, 128f, 56f))) { panel = UiPanel.None; Store.Commit(); }
+            Label(new Rect(ix + 138f, iy, 150, 56), "ショップ", St(28, TextAnchor.MiddleLeft), Color.white);
+            CoinPill(new Rect(ix + iw - 186f, iy + 6f, 186f, 44f), d.coins);
             float tw = (iw - 3 * 6f) / 4f;
-            for (int i = 0; i < 4; i++) if (Btn(new Rect(ix + i * (tw + 6f), tabsR.y, tw, 40f), tabs[i], i == shopTab ? Candy[3] : new Color(.4f, .38f, .62f), touchMode ? 14 : 16)) shopTab = i;
+            for (int i = 0; i < 4; i++) if (Btn(new Rect(ix + i * (tw + 6f), tabsR.y, tw, 50f), tabs[i], i == shopTab ? Candy[3] : new Color(.4f, .38f, .62f), touchMode ? 15 : 17)) shopTab = i;
             Panel(new Rect(P.x, foot.y - 8f, P.width, P.yMax - foot.y + 8f), new Color(.17f, .15f, .38f, 1f), 0f);
             if (Btn(foot, "広告を見て +150 コイン", new Color(1f, .6f, .2f), 19)) ShowRewardedAd("150 コイン", () => { Store.D.coins += 150; Store.D.totalCoins += 150; Store.Commit(); toast = "+150 コイン!"; toastT = 1.5f; fx.PlayCash(); });
         }
@@ -383,7 +388,7 @@ namespace ShibuyaRush
                 var u = Meta.Upgrades[i]; Disc(pv, Candy[i % Candy.Length]); Label(pv, "" + d.up[i], St(24), Color.white);
             }
             else { Disc(pv, new Color(1, 1, 1, .95f)); Disc(new Rect(pv.x + 4, pv.y + 4, 40, 40), pa); Disc(new Rect(pv.x + 20, pv.y + 20, 24, 24), pb); }
-            float bw = 104f;
+            float bw = 112f;
             Label(new Rect(r.x + 68, r.y + 6, r.width - 68 - bw - 20, 30), name, St(touchMode ? 18 : 20, TextAnchor.MiddleLeft), Color.white);
             if (shopTab == 0)
             {   // レベルの目盛り
@@ -391,7 +396,7 @@ namespace ShibuyaRush
                 Label(new Rect(r.x + 68, r.y + 48, r.width - 68 - bw - 20, 24), sub, St(12, TextAnchor.MiddleLeft), new Color(1, 1, 1, .8f));
             }
             else Label(new Rect(r.x + 68, r.y + 38, r.width - 68 - bw - 20, 28), sub, St(14, TextAnchor.MiddleLeft), new Color(1, 1, 1, .8f));
-            var br = new Rect(r.xMax - bw - 8, r.y + 12, bw, r.height - 24);
+            var br = new Rect(r.xMax - bw - 8, r.y + 10, bw, r.height - 20);
             if (Btn(br, "", bc, 16, enabled, false, clip)) tap?.Invoke();
             bool price = enabled && (shopTab == 0 || btn.Length > 0 && char.IsDigit(btn[0]));
             if (price) { CoinIcon(new Rect(br.x + 8, br.center.y - 11, 22, 22)); Label(new Rect(br.x + 30, br.y, br.width - 34, br.height), btn, St(btn.Length > 4 ? 15 : 18, TextAnchor.MiddleRight), Color.white); }
@@ -442,7 +447,7 @@ namespace ShibuyaRush
             }
             else if (res.claimed) { y += 4f; }
             // ボタン
-            float bh = 48f; float by = Mathf.Max(y + 2f, right.yMax - (spec.free ? bh : bh * 2 + 8f) - 2f); if (!two) by = Mathf.Max(y + 2f, right.yMax - bh * 2 - 8f);
+            float bh = touchMode ? 58f : 52f; float by = Mathf.Max(y + 2f, right.yMax - (spec.free ? bh : bh * 2 + 8f) - 2f); if (!two) by = Mathf.Max(y + 2f, right.yMax - bh * 2 - 8f);
             bool canNext = !spec.free; float half = (right.width - 12 - 8f) / 2f;
             if (canNext) { if (Btn(new Rect(right.x + 6, by, right.width - 12, bh), touchMode ? "つぎのレベル" : "つぎのレベル [N]", new Color(.25f, .78f, .38f), 22) && t > 0.9f) { rouletteFrozen = -1f; StartLevel(levels.Make(Store.D.level)); } by += bh + 8f; }
             float third = (right.width - 12f - 16f) / 3f;
@@ -464,7 +469,7 @@ namespace ShibuyaRush
             CoinIcon(new Rect(p.center.x - 70, p.y + 130, 30, 30)); Label(new Rect(p.center.x - 34, p.y + 128, 130, 34), "+" + Fmt(res.total), St(26, TextAnchor.MiddleLeft), new Color(1f, .92f, .4f));
             float y = p.y + 176f; float bw = p.width - 40f;
             if (failReason == "TIME UP" && !continueUsed && !spec.free)
-            { if (Btn(new Rect(p.x + 20, y, bw, 52), "広告を見て +15秒 つづける", new Color(1f, .6f, .2f), 21) && stateT > 0.6f) ShowRewardedAd("+15秒でつづき", Continue); y += 60f; }
+            { if (Btn(new Rect(p.x + 20, y, bw, 56), "広告を見て +15秒 つづける", new Color(1f, .6f, .2f), 21) && stateT > 0.6f) ShowRewardedAd("+15秒でつづき", Continue); y += 60f; }
             else y += 4f;
             if (Btn(new Rect(p.x + 20, y, bw, 52), touchMode ? "もう一度" : "もう一度 [R]", new Color(.25f, .78f, .38f), 22) && stateT > 0.6f) StartLevel(spec); y += 60f;
             if (Btn(new Rect(p.x + 20, y, bw, 46), touchMode ? "ホーム" : "ホーム [M]", Candy[4], 19) && stateT > 0.6f) GoHome();

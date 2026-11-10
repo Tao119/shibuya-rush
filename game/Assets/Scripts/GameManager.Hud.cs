@@ -33,7 +33,7 @@ namespace ShibuyaRush
             L.timer = new Rect(L.x0 + m, L.y0 + m, po ? 200 : 250, po ? 60 : 76);
             L.chip = new Rect(L.x0 + m, L.timer.yMax + 8, po ? 240 : 300, 32);
             float mm = touchMode ? (po ? 118 : 150) : 220; L.minimap = new Rect(L.x1 - m - mm, L.y0 + m, mm, mm);
-            L.pause = new Rect(L.timer.xMax + 8, L.timer.y + 6, 50, 50); L.coinPill = new Rect(L.x0 + m, L.chip.yMax + 8, 150, 36);
+            L.pause = new Rect(L.timer.xMax + 8, L.timer.y + 2, 60, 60); L.coinPill = new Rect(L.x0 + m, L.chip.yMax + 8, 150, 36);
             L.arrow = new Vector2(L.W / 2f, po ? L.y0 + m + Mathf.Max(mm, 110f) + 62f : L.y0 + 92f);
             if (touchMode)
             {

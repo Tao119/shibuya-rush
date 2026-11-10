@@ -56,11 +56,11 @@ namespace ShibuyaRush
 
         void AddTree(Vector2 p, System.Random rng, CityBuilder city)
         {
-            if (city.InsideBuilding(p.x, p.y) || city.Blocked(p.x, p.y, 0.5f)) return;
+            if (city.InsideBuilding(p.x, p.y) || city.Blocked(p.x, p.y, 1.3f)) return;   // 壁の近くには立てない(木と壁のすき間でプレイヤーが挟まらないように)
             city.AddSolid(p, 0.38f);
             trees.Add(new Item { pos = new Vector3(p.x, Heightfield.Current.Height(p.x, p.y), p.y), yaw = (float)rng.NextDouble() * 360f, scale = 0.85f + (float)rng.NextDouble() * 0.6f, variant = rng.Next(3) });
         }
-        void AddLamp(Vector2 p, System.Random rng) { cityRef?.AddSolid(p, 0.2f); lamps.Add(new Item { pos = new Vector3(p.x, Heightfield.Current.Height(p.x, p.y), p.y), yaw = (float)rng.NextDouble() * 360f, scale = 1f }); }
+        void AddLamp(Vector2 p, System.Random rng) { if (cityRef != null && cityRef.Blocked(p.x, p.y, 0.9f)) return; cityRef?.AddSolid(p, 0.2f); lamps.Add(new Item { pos = new Vector3(p.x, Heightfield.Current.Height(p.x, p.y), p.y), yaw = (float)rng.NextDouble() * 360f, scale = 1f }); }
 
         // ---------------- ネオン看板 ----------------
         void BuildNeon(CityData data, CityBuilder city, Transform parent, bool mobile)

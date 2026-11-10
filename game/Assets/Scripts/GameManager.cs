@@ -85,9 +85,11 @@ namespace ShibuyaRush
             graph = new PedGraph(data);
             city.Exempt = null;   // 例外は設けない: 壁は高さで判定する(高架の上は屋根より高ければ通れる)
             int pruned = graph.Prune(city.InsideBuilding, false);
-            graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f));
-            int healed = graph.Heal(9f, (x, z) => city.Blocked(x, z, 0.4f)); Debug.Log($"[Graph] gap-healing edges added={healed}"); var swH = System.Diagnostics.Stopwatch.StartNew(); if (healed > 0) graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f));
-            int healedR = graph.HealRoutes(30f, (x, z) => city.Blocked(x, z, 0.4f)); graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f)); Debug.Log($"[Graph] route-only shortcuts added={healedR} ({swH.ElapsedMilliseconds}ms)");
+            // 崖や急な斜面(傾き0.75以上)は、建物と同じく歩けない場所として扱う
+            System.Func<float, float, bool> wall5 = (x, z) => city.Blocked(x, z, 0.5f) || Heightfield.Current.Slope(x, z) > 0.75f, wall4 = (x, z) => city.Blocked(x, z, 0.4f) || Heightfield.Current.Slope(x, z) > 0.75f;
+            graph.ComputeFree(wall5);
+            int healed = graph.Heal(9f, wall4); Debug.Log($"[Graph] gap-healing edges added={healed}"); var swH = System.Diagnostics.Stopwatch.StartNew(); if (healed > 0) graph.ComputeFree(wall5);
+            int healedR = graph.HealRoutes(30f, wall4); graph.ComputeFree(wall5); Debug.Log($"[Graph] route-only shortcuts added={healedR} ({swH.ElapsedMilliseconds}ms)");
             city.MakeWalkable(graph, M("Walkway")); city.MakeStairs(graph, M("Walkway"));
             var lm = new List<Vector2>(); foreach (var q in data.pois) lm.Add(new Vector2(q.x, q.z));
             lm.Add(Vector2.zero);

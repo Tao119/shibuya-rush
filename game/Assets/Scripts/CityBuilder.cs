@@ -120,7 +120,7 @@ namespace ShibuyaRush
                     var a0 = new Vector2(r.p[i], r.p[i + 1]); var b0 = new Vector2(r.p[i + 2], r.p[i + 3]);
                     var d = b0 - a0; float L = d.magnitude; if (L < 1e-2f) continue; d /= L;
                     var n = new Vector2(-d.y, d.x) * half;
-                    int pieces = Mathf.Max(1, Mathf.CeilToInt(L / 4f));
+                    int pieces = Mathf.Max(1, Mathf.CeilToInt(L / 2.5f));
                     for (int k = 0; k < pieces; k++)
                     {
                         var a = Vector2.Lerp(a0, b0, (float)k / pieces); var b = Vector2.Lerp(a0, b0, (float)(k + 1) / pieces);
@@ -197,12 +197,16 @@ namespace ShibuyaRush
             {
                 var e = g.edges[id]; if (e.width <= 0f || e.routeOnly || !g.inMain[e.a] || e.lA > 0.05f || e.lB > 0.05f) continue;
                 var a0 = g.nodes[e.a]; var b0 = g.nodes[e.b]; var nn = new Vector2(-e.dir.y, e.dir.x); float fl = g.freeL[id], fr = g.freeR[id];
-                int pieces = Mathf.Max(1, Mathf.CeilToInt(e.len / 4f));
+                int pieces = Mathf.Max(1, Mathf.CeilToInt(e.len / 4f)); int lat = Mathf.Max(1, Mathf.CeilToInt((fl + fr) / 3f));   // 横にも3mごとに刻み、斜面でも地面に沿わせる
                 for (int k = 0; k < pieces; k++)
                 {
-                    var a = Vector2.Lerp(a0, b0, (float)k / pieces); var b = Vector2.Lerp(a0, b0, (float)(k + 1) / pieces); int s = v.Count;
-                    v.Add(Pt(a - nn * fr, y)); v.Add(Pt(a + nn * fl, y)); v.Add(Pt(b + nn * fl, y)); v.Add(Pt(b - nn * fr, y));
-                    idx.Add(s); idx.Add(s + 1); idx.Add(s + 2); idx.Add(s); idx.Add(s + 2); idx.Add(s + 3);
+                    var a = Vector2.Lerp(a0, b0, (float)k / pieces); var b = Vector2.Lerp(a0, b0, (float)(k + 1) / pieces);
+                    for (int m = 0; m < lat; m++)
+                    {
+                        float o0 = -fr + (fl + fr) * m / lat, o1 = -fr + (fl + fr) * (m + 1) / lat; int s = v.Count;
+                        v.Add(Pt(a + nn * o0, y)); v.Add(Pt(a + nn * o1, y)); v.Add(Pt(b + nn * o1, y)); v.Add(Pt(b + nn * o0, y));
+                        idx.Add(s); idx.Add(s + 1); idx.Add(s + 2); idx.Add(s); idx.Add(s + 2); idx.Add(s + 3);
+                    }
                 }
                 float rc = (fl + fr) * 0.5f; AddDisc(v, idx, a0, rc, y); AddDisc(v, idx, b0, rc, y);
             }

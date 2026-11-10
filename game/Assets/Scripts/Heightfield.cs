@@ -30,7 +30,17 @@ namespace ShibuyaRush
             if (h == null) return 0f;
             float fx = (x - minX) / step, fz = (z - minZ) / step;
             int i = Mathf.FloorToInt(fx), j = Mathf.FloorToInt(fz); float ax = fx - i, az = fz - j;
-            return Mathf.Lerp(Mathf.Lerp(At(i, j), At(i + 1, j), ax), Mathf.Lerp(At(i, j + 1), At(i + 1, j + 1), ax), az);
+            // 描かれる地面の三角形(各マスを(i+1,j)-(i,j+1)の対角線で2分割)と同じ補間にする。物が地面に埋まったり浮いたりしないように
+            float h00 = At(i, j), h10 = At(i + 1, j), h01 = At(i, j + 1), h11 = At(i + 1, j + 1);
+            return ax + az <= 1f ? h00 + ax * (h10 - h00) + az * (h01 - h00) : h11 + (1f - ax) * (h01 - h11) + (1f - az) * (h10 - h11);
+        }
+
+        /// <summary>(x,z)の地面の傾き(高さの変化/距離)。崖や急な斜面は大きい値になる。</summary>
+        public float Slope(float x, float z)
+        {
+            if (h == null) return 0f;
+            float dx = (Height(x + 1f, z) - Height(x - 1f, z)) * 0.5f, dz = (Height(x, z + 1f) - Height(x, z - 1f)) * 0.5f;
+            return Mathf.Sqrt(dx * dx + dz * dz);
         }
     }
 }

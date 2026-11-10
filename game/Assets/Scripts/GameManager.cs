@@ -99,7 +99,7 @@ namespace ShibuyaRush
             var carMats = new Material[6]; for (int i = 0; i < carMats.Length; i++) carMats[i] = M("Car" + i);
             traffic = new Traffic(carGraph, graph, crowd, carCount, carMats, M("CarCabin"));
             player = new Player(city, crowd, graph, Vector2.zero) { yaw = 0 };
-            fx = new SkillFx(this, cam, M("FxAdd"), new[] { M("GhostA"), M("GhostB"), M("GhostC") }, M("Skin"));
+            fx = new SkillFx(this, cam, M("FxAdd"), new[] { M("GhostA"), M("GhostB"), M("GhostC") }, M("Skin"), touchMode);   // スマホは重いポストエフェクトを切る
             Store.NoPersist = noPersist || autoplay; if (resetSave) Store.Reset();
             if (giveCoins > 0) { Store.D.coins += giveCoins; Store.Commit(); }
             fx.SetAudio(Store.D.music, Store.D.sfx);
@@ -199,7 +199,7 @@ namespace ShibuyaRush
         {
             crowd.NearDist = 28f; crowd.FarDist = 120f; crowd.ActiveRadius = 120f;
             if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline is UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset urp)
-            { urp.shadowDistance = 55f; urp.renderScale = 0.85f; urp.msaaSampleCount = 2; }
+            { urp.shadowDistance = 40f; urp.renderScale = 0.75f; urp.msaaSampleCount = 1; }
         }
 
         Vector2 BotWish(out bool dash, out bool slip, out bool shove)
@@ -303,8 +303,13 @@ namespace ShibuyaRush
 
             if (!autoplay && !frozen)
             {   // 視点: 手動で回す(右ドラッグ・←→・右側スワイプ)。それ以外は進む向きへ自動で追従する
-                camYaw += input.camDelta;
-                if (state == GameState.Playing && input.manualCamT <= 0f && input.stick.sqrMagnitude > 0.09f)
+                camYaw += input.camDelta; camElev = Mathf.Clamp(camElev - input.camDeltaY * 0.03f, -2.5f, 6f);   // 指の上下で、カメラの高さも変えられる
+                if (Mathf.Abs(input.camDelta) > 0.01f || Mathf.Abs(input.camDeltaY) > 0.5f) { manualHold = true; straightT = 0f; }
+                // まっすぐ進み続けたら、手で回したカメラも自動で進行方向(背中側)に戻り、高さも標準に戻る
+                bool straight = state == GameState.Playing && input.stick.sqrMagnitude > 0.09f && Vector2.Angle(Vector2.up, input.stick) < 30f && player.speedNow > 2f;
+                straightT = straight ? straightT + rdt : 0f; if (manualHold && straightT > 2f) manualHold = false;
+                if (!manualHold) camElev = Mathf.Lerp(camElev, 0f, 1f - Mathf.Exp(-1.2f * rdt));
+                if (state == GameState.Playing && !manualHold && input.stick.sqrMagnitude > 0.09f)
                 {
                     float ang = Vector2.Angle(Vector2.up, input.stick); float k = input.kbMove ? (ang < 15f ? 2.2f : 0f) : (ang < 60f ? 2.2f : ang < 110f ? 0.7f : 0f);   // キー操作は斜め・横で視点を回さない(円を描いてしまうため)
                     if (k > 0f) camYaw = Mathf.LerpAngle(camYaw, player.yaw, 1f - Mathf.Exp(-k * rdt));
@@ -404,6 +409,7 @@ namespace ShibuyaRush
             Debug.Log("[Perf] " + sb);
         }
 
+        float camElev, straightT; bool manualHold;
         Rect camRectWant = new Rect(0, 0, 1, 1);
 
         void UpdateCamera(float dt)
@@ -414,7 +420,7 @@ namespace ShibuyaRush
             if (wantRect != camRectWant) { camRectWant = wantRect; cam.rect = wantRect; }
             float y = camYaw * Mathf.Deg2Rad; var back = new Vector3(-Mathf.Sin(y), 0, -Mathf.Cos(y));
             float narrow = Screen.width < Screen.height ? 1.45f : 1f;   // 縦画面は横幅が狭いので、引いて高くする
-            var want = shop ? p + back * 3.6f + Vector3.up * 1.7f : p + back * camBack * narrow + Vector3.up * camUp * (narrow > 1f ? 1.35f : 1f);
+            var want = shop ? p + back * 3.6f + Vector3.up * 1.7f : p + back * camBack * narrow + Vector3.up * (camUp * (narrow > 1f ? 1.35f : 1f) + camElev);
             if (!shop && !city.InsideBuilding(player.pos.x, player.pos.y))
             {   // カメラが建物の壁にめり込まないよう、プレイヤー側に寄せる
                 var head = p + Vector3.up * 1.5f; var dv = want - head;

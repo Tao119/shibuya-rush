@@ -108,12 +108,21 @@ namespace ShibuyaRush
             return c;
         }
 
-        /// <summary>縁取りつき文字(大きい文字ほど縁取りを太く)。</summary>
+        // GUIUtility.RotateAroundPivot / ScaleAroundPivot は、GUI.matrix の拡大(スマホでは約2.4倍)を無視した位置を軸にしてしまうため、
+        // 行列を自分で組み立てる。(これを使っていた間は、実機で集中線・矢印・ポップアップが左上にずれていた)
+        void RotAround(float ang, Vector2 pivot) { GUI.matrix = GUI.matrix * Matrix4x4.TRS(new Vector3(pivot.x, pivot.y, 0), Quaternion.Euler(0, 0, ang), Vector3.one) * Matrix4x4.TRS(new Vector3(-pivot.x, -pivot.y, 0), Quaternion.identity, Vector3.one); }
+        void ScaleAround(Vector2 sc, Vector2 pivot) { GUI.matrix = GUI.matrix * Matrix4x4.TRS(new Vector3(pivot.x, pivot.y, 0), Quaternion.identity, new Vector3(sc.x, sc.y, 1)) * Matrix4x4.TRS(new Vector3(-pivot.x, -pivot.y, 0), Quaternion.identity, Vector3.one); }
+
+        static readonly Vector2[] OutlineFull = { new Vector2(-2, 0), new Vector2(2, 0), new Vector2(0, -2), new Vector2(0, 2), new Vector2(0, 4), new Vector2(-1.5f, 1.5f), new Vector2(1.5f, 1.5f), new Vector2(-1.5f, -1.5f), new Vector2(1.5f, -1.5f) };
+        static readonly Vector2[] OutlineLite = { new Vector2(-2, 0), new Vector2(2, 0), new Vector2(0, -2), new Vector2(0, 3) };
+
+        /// <summary>縁取りつき文字(大きい文字ほど縁取りを太く)。スマホでは縁取りを減らして描画を軽くする。</summary>
         void Label(Rect r, string s, GUIStyle st, Color c)
         {
-            float k = Mathf.Clamp(st.fontSize / 26f, 1f, 3.2f); st.normal.textColor = new Color(0.1f, 0.08f, 0.2f, 0.92f);
-            foreach (var o in new[] { new Vector2(-2, 0), new Vector2(2, 0), new Vector2(0, -2), new Vector2(0, 2), new Vector2(0, 4), new Vector2(-1.5f, 1.5f), new Vector2(1.5f, 1.5f), new Vector2(-1.5f, -1.5f), new Vector2(1.5f, -1.5f) })
-                GUI.Label(new Rect(r.x + o.x * k, r.y + o.y * k, r.width, r.height), s, st);
+            if (c.a < 0.02f || string.IsNullOrEmpty(s)) return;
+            float k = Mathf.Clamp(st.fontSize / 26f, 1f, 3.2f); st.normal.textColor = new Color(0.1f, 0.08f, 0.2f, 0.92f * Mathf.Min(1f, c.a * 1.2f));
+            var outline = touchMode ? OutlineLite : OutlineFull;
+            for (int i = 0; i < outline.Length; i++) { var o = outline[i]; GUI.Label(new Rect(r.x + o.x * k, r.y + o.y * k, r.width, r.height), s, st); }
             st.normal.textColor = c; GUI.Label(r, s, st);
         }
 
@@ -129,7 +138,8 @@ namespace ShibuyaRush
         // ---------------- OnGUI ----------------
         void OnGUI()
         {
-            if (data == null) return; InitStyles(); ComputeLayout();
+            if (data == null) return; if (Event.current.type == EventType.Layout) return;   // 配置用のイベントでは描かない(描画を半分にして、スマホの負荷を下げる)
+            InitStyles(); ComputeLayout();
             GUI.matrix = Matrix4x4.Scale(new Vector3(L.S, L.S, 1)); float W = L.W, H = L.H;
             PreUI();
             if (state == GameState.Menu) DrawHome();
@@ -172,7 +182,7 @@ namespace ShibuyaRush
               Label(new Rect(L.chip.x + 10, L.chip.y, 30, L.chip.height), "▶", new GUIStyle(mid) { fontSize = 20, alignment = TextAnchor.MiddleLeft }, new Color(1f, .85f, .2f));
               Label(new Rect(L.chip.x + 38, L.chip.y, L.chip.width - 44, L.chip.height), goalName, gs, Color.white); }
             // コインの数(取るたびにぽんと弾む)
-            float cp = 1f + 0.35f * Mathf.Exp(-(Time.unscaledTime - coinPulse) * 10f); var pr = L.coinPill; var mt = GUI.matrix; GUIUtility.ScaleAroundPivot(new Vector2(cp, cp), pr.center);
+            float cp = 1f + 0.35f * Mathf.Exp(-(Time.unscaledTime - coinPulse) * 10f); var pr = L.coinPill; var mt = GUI.matrix; ScaleAround(new Vector2(cp, cp), pr.center);
             Panel(pr, new Color(.18f, .17f, .36f, .82f), 3f); CoinIcon(new Rect(pr.x + 6, pr.y + 5, 26, 26));
             Label(new Rect(pr.x + 38, pr.y, pr.width - 44, pr.height), Fmt(runCoins * (spec.mod == 1 ? 2 : 1)), new GUIStyle(mid) { fontSize = 22 }, new Color(1f, .9f, .35f)); GUI.matrix = mt;
             float py = pr.yMax + 6;
@@ -199,7 +209,7 @@ namespace ShibuyaRush
             if (combo < 2) return;
             float k = 1f + 0.55f * Mathf.Exp(-(Time.unscaledTime - comboPop) * 9f);
             float lv = Mathf.Clamp01(combo / 60f); var col = Color.Lerp(Color.Lerp(Color.white, new Color(1f, .9f, .2f), Mathf.Clamp01(lv * 2)), new Color(1f, .35f, .55f), Mathf.Clamp01(lv * 2 - 1));
-            var mat = GUI.matrix; var piv = L.combo; GUIUtility.ScaleAroundPivot(new Vector2(k, k), piv);
+            var mat = GUI.matrix; var piv = L.combo; ScaleAround(new Vector2(k, k), piv);
             Label(new Rect(piv.x - 130, piv.y - 70, 260, 34), "COMBO", new GUIStyle(small) { alignment = TextAnchor.MiddleCenter, fontSize = 22 }, new Color(1, 1, 1, 0.95f));
             Label(new Rect(piv.x - 130, piv.y - 40, 260, 90), "x" + (int)combo, new GUIStyle(huge) { fontSize = touchMode ? 64 : 84 }, col);
             var old = GUI.color; GUI.color = new Color(1, 1, 1, 0.9f); GUI.DrawTexture(new Rect(piv.x - 90, piv.y + 56, 180 * Mathf.Clamp01(comboT / 1.6f), 8), Texture2D.whiteTexture); GUI.color = old;
@@ -254,7 +264,7 @@ namespace ShibuyaRush
             {
                 var sp = cam.WorldToScreenPoint(p.w + Vector3.up * (p.age * 2.2f)); if (sp.z < 0) continue;
                 float k = (1f + 0.8f * Mathf.Exp(-p.age * 12f)) * p.size; float a = Mathf.Clamp01((p.life - p.age) / 0.35f);
-                var mat = GUI.matrix; var pv = new Vector2(sp.x / sc, (Screen.height - sp.y) / sc); GUIUtility.ScaleAroundPivot(new Vector2(k, k), pv);
+                var mat = GUI.matrix; var pv = new Vector2(sp.x / sc, (Screen.height - sp.y) / sc); ScaleAround(new Vector2(k, k), pv);
                 var c = p.c; c.a = a; Label(new Rect(pv.x - 100, pv.y - 20, 200, 40), p.s, new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = 28 }, c);
                 GUI.matrix = mat;
             }
@@ -263,7 +273,7 @@ namespace ShibuyaRush
         void DrawCountdown(float W, float H)
         {
             int n = Mathf.Max(1, 3 - (int)stateT); float frac = stateT - Mathf.Floor(stateT);
-            float k = 1f + 1.2f * Mathf.Exp(-frac * 9f); var mat = GUI.matrix; var piv = new Vector2(W / 2, H / 2 - 40); GUIUtility.ScaleAroundPivot(new Vector2(k, k), piv);
+            float k = 1f + 1.2f * Mathf.Exp(-frac * 9f); var mat = GUI.matrix; var piv = new Vector2(W / 2, H / 2 - 40); ScaleAround(new Vector2(k, k), piv);
             Label(new Rect(0, piv.y - 70, W, 140), n.ToString(), new GUIStyle(huge) { fontSize = 130 }, Candy[(3 - n) % Candy.Length]);
             GUI.matrix = mat;
         }
@@ -281,7 +291,7 @@ namespace ShibuyaRush
                 {
                     float ang = i * (360f / 56f) + Mathf.Sin(i * 12.9898f + Mathf.Floor(t * 24f)) * 3f;
                     float r0 = sh * (0.36f + 0.1f * Mathf.Abs(Mathf.Sin(i * 3.1f + Mathf.Floor(t * 30f)))), len = sh * (0.18f + 0.3f * Mathf.Abs(Mathf.Sin(i * 7.7f)));
-                    GUI.matrix = mat; GUIUtility.RotateAroundPivot(ang, ctr);
+                    GUI.matrix = mat; RotAround(ang, ctr);
                     GUI.color = new Color(1, 1, 1, 0.55f * fx.SpeedLines * (0.4f + 0.6f * Mathf.Abs(Mathf.Sin(i * 5.3f))));
                     GUI.DrawTexture(new Rect(ctr.x - 1.5f, ctr.y - r0 - len, 3f, len), Texture2D.whiteTexture);
                 }
@@ -297,7 +307,7 @@ namespace ShibuyaRush
             float a = Mathf.Clamp01(fx.BannerT / 0.35f), age = 1f - Mathf.Clamp01(fx.BannerT / 1.4f);
             float pop = 1f + 0.9f * Mathf.Exp(-age * 14f);
             var mat = GUI.matrix; var piv = new Vector2(W / 2, H * (L.portrait ? 0.30f : 0.36f));
-            GUIUtility.ScaleAroundPivot(new Vector2(pop, pop), piv);
+            ScaleAround(new Vector2(pop, pop), piv);
             var c = fx.BannerColor; c.a = a; int fs = L.portrait || touchMode ? 44 : 54;
             Label(new Rect(0, piv.y - 45, W, 90), fx.Banner, new GUIStyle(big) { fontSize = fs }, c);
             Label(new Rect(0, piv.y + 30, W, 40), fx.BannerSub, new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = touchMode ? 20 : 26 }, new Color(1, 1, 1, a));
@@ -311,7 +321,7 @@ namespace ShibuyaRush
             float rel = Mathf.DeltaAngle(camYaw, bearing);
             var ctr = L.arrow; var mat = GUI.matrix; var old = GUI.color;
             float pulse = 1f + 0.06f * Mathf.Sin(Time.unscaledTime * 6f); float sz = (touchMode ? 80f : 96f) * pulse;
-            GUIUtility.RotateAroundPivot(rel, ctr);
+            RotAround(rel, ctr);
             GUI.color = new Color(0, 0, 0, 0.6f); GUI.DrawTexture(new Rect(ctr.x - sz / 2 - 6, ctr.y - sz / 2 - 6, sz + 12, sz + 12), arrowTex);
             GUI.color = new Color(1f, 0.85f, 0.15f, 1f); GUI.DrawTexture(new Rect(ctr.x - sz / 2, ctr.y - sz / 2, sz, sz), arrowTex);
             GUI.matrix = mat; GUI.color = old;

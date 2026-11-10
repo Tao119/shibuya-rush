@@ -17,7 +17,7 @@ namespace ShibuyaRush
         // ---- 毎フレームの結果 ----
         public Vector2 stick;                 // x:右 y:上(画面基準)。長さ0〜1
         public bool stickActive; public Vector2 stickOrigin, stickPos;   // 描画用
-        public float camDelta;                // 手動の視点回転(度)
+        public float camDelta, camDeltaY;                // 手動の視点回転(度)
         public bool dash, slip, shove;        // このフレームに押された
         public bool kbMove;                   // キーボードで移動中
         public bool usingTouch;               // 直近の操作がタッチ
@@ -33,7 +33,7 @@ namespace ShibuyaRush
 
         public void Update(float dt)
         {
-            dash = slip = shove = false; camDelta = 0f; manualCamT = Mathf.Max(0f, manualCamT - dt);
+            dash = slip = shove = false; camDelta = 0f; camDeltaY = 0f; manualCamT = Mathf.Max(0f, manualCamT - dt);
             // --- キーボード ---
             var kb = new Vector2((Input.GetKey(KeyCode.D) ? 1 : 0) - (Input.GetKey(KeyCode.A) ? 1 : 0), (Input.GetKey(KeyCode.W) ? 1 : 0) - (Input.GetKey(KeyCode.S) ? 1 : 0));
             // 矢印キーだけでも全操作できる: ↑↓←→で移動、Z/X/Cでスキル、Q/Wではなく ,/. で視点
@@ -71,11 +71,11 @@ namespace ShibuyaRush
                 else if (btnShove.Hit(pos)) { p.role = 3; shove = true; }
                 else if (noDrive.Exists(r => r.Contains(pos))) p.role = 0;
                 else if (id == -2) p.role = 2;                                          // 右クリックのドラッグは視点
-                else if (usingTouch && pos.x > W * 0.62f) p.role = 2;                   // 右側のスワイプは視点
+                else if (usingTouch && pos.x > W * 0.55f) p.role = 2;                   // 右側のスワイプは視点
                 else p.role = 1;                                                        // それ以外はスティック
             }
             if (p == null) return;
-            if (held) { if (p.role == 2) { camDelta += (pos.x - p.last.x) * 0.35f; manualCamT = 1.2f; } p.last = pos; }
+            if (held) { if (p.role == 2) { camDelta += (pos.x - p.last.x) * 0.35f; camDeltaY += (pos.y - p.last.y); manualCamT = 1.2f; } p.last = pos; }
             if (up || (!held && id < 0)) ptrs.Remove(p);
         }
     }

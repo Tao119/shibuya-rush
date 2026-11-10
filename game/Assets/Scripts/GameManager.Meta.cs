@@ -210,7 +210,7 @@ namespace ShibuyaRush
         void UpdateRouteGuide(float dt)
         {
             if (state != GameState.Playing && state != GameState.Countdown) return;
-            routeT -= dt; if (routeT > 0f) return; routeT = touchMode ? 1.6f : 1.0f;
+            routeT -= dt; if (routeT > 0f) return; routeT = touchMode ? 2.5f : 1.0f;
             var r = graph.Path(player.pos, goal, player.lift); guide.Clear(); if (r.Count >= 2) guide.AddRange(r);
         }
 

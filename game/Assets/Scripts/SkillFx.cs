@@ -41,7 +41,7 @@ namespace ShibuyaRush
         float puffT;
         public bool PostOk { get; private set; }
 
-        public SkillFx(MonoBehaviour host, Camera cam, Material fxAdd, Material[] ghostMats, Material skin)
+        public SkillFx(MonoBehaviour host, Camera cam, Material fxAdd, Material[] ghostMats, Material skin, bool lite = false)
         {
             this.host = host; this.cam = cam; fovTarget = 0f;
             for (int i = 0; i < 3; i++) ghosts[i] = new HumanoidRenderer(new[] { ghostMats[i] }, ghostMats[i], ghostMats[i]);
@@ -60,7 +60,7 @@ namespace ShibuyaRush
             var pr = pg.GetComponent<ParticleSystemRenderer>(); var pm = new Material(fxAdd); pm.SetTexture("_BaseMap", softTex); pr.sharedMaterial = pm; pr.renderMode = ParticleSystemRenderMode.Billboard;
             sparks.Play();
             // ポストエフェクト(URPのVolume)。描画されない環境でも、画面オーバーレイで演出は成立する
-            try
+            if (!lite) try
             {
                 cam.GetUniversalAdditionalCameraData().renderPostProcessing = true;
                 var vgo = new GameObject("FxVolume"); vgo.transform.SetParent(host.transform);

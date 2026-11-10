@@ -38,7 +38,11 @@ namespace ShibuyaRush
             return enabled && Tap(r, clip);
         }
 
-        GUIStyle St(int size, TextAnchor a = TextAnchor.MiddleCenter, bool wrap = false) => new GUIStyle(mid) { fontSize = size, alignment = a, wordWrap = wrap };
+        readonly Dictionary<int, GUIStyle> stCache = new Dictionary<int, GUIStyle>();
+        GUIStyle St(int size, TextAnchor a = TextAnchor.MiddleCenter, bool wrap = false)
+        {   // 毎フレーム作ると不要なゴミが増えて処理落ちするので、使い回す
+            int key = size * 64 + (int)a * 2 + (wrap ? 1 : 0); if (!stCache.TryGetValue(key, out var st)) stCache[key] = st = new GUIStyle(mid) { fontSize = size, alignment = a, wordWrap = wrap }; return st;
+        }
         void Chip(Rect r, string text, Color c) { Panel(r, new Color(c.r, c.g, c.b, .92f), 3f); Label(r, text, St(14), Color.white); }
         static string Fmt(int n) => n.ToString("N0");
 
@@ -412,7 +416,7 @@ namespace ShibuyaRush
             var left = two ? new Rect(p.x + 12, p.y + 8, p.width * 0.44f, p.height - 16) : new Rect(p.x + 12, p.y + 8, p.width - 24, 250f);
             var right = two ? new Rect(left.xMax + 6, p.y + 12, p.xMax - left.xMax - 18, p.height - 24) : new Rect(p.x + 14, left.yMax + 4, p.width - 28, p.height - left.height - 24);
             // 左(上): タイトル・時間・星
-            float k = 1f + 0.5f * Mathf.Exp(-t * 8f); var mat = GUI.matrix; GUIUtility.ScaleAroundPivot(new Vector2(k, k), new Vector2(left.center.x, left.y + 40));
+            float k = 1f + 0.5f * Mathf.Exp(-t * 8f); var mat = GUI.matrix; ScaleAround(new Vector2(k, k), new Vector2(left.center.x, left.y + 40));
             Label(new Rect(left.x, left.y, left.width, 76), spec.boss ? (res.rivalWon ? "WIN!" : "GOAL!") : "CLEAR!", new GUIStyle(huge) { fontSize = two ? 58 : 66 }, new Color(1, .9f, .3f)); GUI.matrix = mat;
             Label(new Rect(left.x, left.y + 74, left.width, 30), goalName, St(touchMode ? 18 : 20), Color.white);
             float shown = Mathf.Min(raceT, raceT * Mathf.Clamp01(t / 0.8f));
@@ -420,7 +424,7 @@ namespace ShibuyaRush
             for (int i = 0; i < 3; i++)
             {
                 float st = 0.9f + i * 0.4f; bool on = i < res.stars && t > st; float ks = on ? 1f + 1.0f * Mathf.Exp(-(t - st) * 9f) : 1f;
-                var mat2 = GUI.matrix; var pv = new Vector2(left.center.x + (i - 1) * (two ? 78 : 90), left.y + 196); GUIUtility.ScaleAroundPivot(new Vector2(ks, ks), pv);
+                var mat2 = GUI.matrix; var pv = new Vector2(left.center.x + (i - 1) * (two ? 78 : 90), left.y + 196); ScaleAround(new Vector2(ks, ks), pv);
                 Label(new Rect(pv.x - 46, pv.y - 42, 92, 84), on ? "★" : "☆", new GUIStyle(huge) { fontSize = two ? 70 : 78 }, on ? new Color(1f, .88f, .2f) : new Color(1, 1, 1, 0.4f)); GUI.matrix = mat2;
             }
             string badge = res.newBest ? "NEW BEST!" : (res.levelUp ? "LEVEL UP!  次は LEVEL " + Store.D.level : ""); if (badge != "" && t > 1.8f) Label(new Rect(left.x, left.y + 238, left.width, 30), badge, St(21), new Color(.5f, 1f, .6f));
@@ -464,7 +468,7 @@ namespace ShibuyaRush
         void DrawFail(float W, float H)
         {
             float cw = Mathf.Min(W - 20f, 460f), chh = 400f; var p = new Rect(W / 2 - cw / 2, (L.y0 + L.y1) / 2f - chh / 2f, cw, chh); Panel(p, new Color(.26f, .16f, .34f, .97f), 8f);
-            float k = 1f + 0.4f * Mathf.Exp(-stateT * 8f); var mat = GUI.matrix; GUIUtility.ScaleAroundPivot(new Vector2(k, k), new Vector2(p.center.x, p.y + 50));
+            float k = 1f + 0.4f * Mathf.Exp(-stateT * 8f); var mat = GUI.matrix; ScaleAround(new Vector2(k, k), new Vector2(p.center.x, p.y + 50));
             Label(new Rect(p.x, p.y + 12, p.width, 80), failReason == "TIME UP" ? "TIME UP" : "ざんねん!", new GUIStyle(huge) { fontSize = 60 }, new Color(1f, .45f, .5f)); GUI.matrix = mat;
             Label(new Rect(p.x, p.y + 92, p.width, 30), failReason == "NO DAMAGE" ? "ノーダメージ条件がくずれました" : $"ゴールまで あと {(player.pos - goal).magnitude:F0} m", St(20), Color.white);
             { float prog = Mathf.Clamp01(1f - (player.pos - goal).magnitude / Mathf.Max(goalDist, 1f)); var tb = new Rect(p.x + 30, p.y + 126, p.width - 60, 12); Bar(tb, new Color(0, 0, 0, .45f)); Bar(new Rect(tb.x, tb.y, tb.width * prog, tb.height), prog > .85f ? new Color(1f, .85f, .2f) : new Color(.5f, .8f, 1f)); if ((player.pos - goal).magnitude < 40f) Label(new Rect(p.x, p.y + 140, p.width, 24), "あと少し!", St(16), new Color(1f, .9f, .3f)); }

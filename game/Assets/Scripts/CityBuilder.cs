@@ -195,7 +195,7 @@ namespace ShibuyaRush
             if (g.freeL == null) return; var v = new List<Vector3>(); var idx = new List<int>(); const float y = 0.008f;
             for (int id = 0; id < g.edges.Count; id++)
             {
-                var e = g.edges[id]; if (e.width <= 0f || !g.inMain[e.a] || e.lA > 0.05f || e.lB > 0.05f) continue;
+                var e = g.edges[id]; if (e.width <= 0f || e.routeOnly || !g.inMain[e.a] || e.lA > 0.05f || e.lB > 0.05f) continue;
                 var a0 = g.nodes[e.a]; var b0 = g.nodes[e.b]; var nn = new Vector2(-e.dir.y, e.dir.x); float fl = g.freeL[id], fr = g.freeR[id];
                 int pieces = Mathf.Max(1, Mathf.CeilToInt(e.len / 4f));
                 for (int k = 0; k < pieces; k++)

@@ -38,7 +38,7 @@ namespace ShibuyaRush
             var cum = new List<float>(); var ids = new List<int>(); float tot = 0;
             for (int i = 0; i < g.edges.Count; i++)
             {
-                if (!g.inMain[g.edges[i].a] || g.edges[i].width <= 0f) continue;
+                if (!g.inMain[g.edges[i].a] || g.edges[i].width <= 0f || g.edges[i].routeOnly) continue;
                 float dc = g.nodes[g.edges[i].a].magnitude;   // 中心(ハチ公前)付近ほど混む
                 tot += g.edges[i].len * Mathf.Min(g.edges[i].width, 14f) * (0.5f + 1.2f * Mathf.Exp(-dc / 260f));
                 cum.Add(tot); ids.Add(i);
@@ -153,7 +153,7 @@ namespace ShibuyaRush
                 ag.hub = nh;
             }
             eid = g.nextEdge[ag.hub][node];
-            if (eid < 0) { var opts = g.adj[node]; eid = opts[rng.Next(opts.Count)]; ag.hub = rng.Next(g.hubNodes.Length); }
+            if (eid < 0) { var opts = g.adj[node]; eid = opts[rng.Next(opts.Count)]; for (int tr = 0; tr < 6 && g.edges[eid].routeOnly; tr++) eid = opts[rng.Next(opts.Count)]; ag.hub = rng.Next(g.hubNodes.Length); }
             if (!g.Green(eid, Clock)) { ag.pending = eid; return; }   // 赤信号: 手前で待つ
             Enter(i, eid, node);
         }

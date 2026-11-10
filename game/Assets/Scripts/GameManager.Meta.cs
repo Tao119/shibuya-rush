@@ -69,6 +69,68 @@ namespace ShibuyaRush
             Debug.Log($"[SelfTest] levels: 40 generated, invalid={bad} (期待 0){sb}");
         }
 
+        /// <summary>
+        /// 最短距離の検証: ゲームの経路(グラフのA*)の長さを、グラフとは無関係に「歩ける範囲を1m格子にして最短を探した距離」と比べる。
+        /// 格子の距離は斜め移動の近似で、実際より最大8%ほど長く出る。経路がそれより明らかに長ければ、グラフが近道を持っていない。
+        /// </summary>
+        void RunRouteOptimalityTest()
+        {
+            int tested = 0, bad = 0, ungrid = 0; float worst = 0f; var sb = new System.Text.StringBuilder();
+            for (int n = 1; n <= 40; n++)
+            {
+                var sp = levels.Make(n); float routeLen = sp.pathLen; if (routeLen < 1f) continue;
+                bool flagged = false; float gl = GridShortest(sp.start, sp.goal); if (gl < 0f) { ungrid++; continue; }
+                float ratio = routeLen / Mathf.Max(1f, gl); tested++; if (ratio > worst) worst = ratio;
+                bool flag = ratio > 1.20f && routeLen - gl > 12f; if (flag) { bad++; Debug.Log($"[SelfTest] NG level {n}: start={sp.start} goal={sp.goal}"); GridShortest(sp.start, sp.goal, true); }
+                if (flag || n <= 8) sb.Append($"\n  L{n}: route={routeLen:F0}m grid={gl:F0}m ratio={ratio:F2}{(flag ? "  NG(遠回り)" : "")}");
+            }
+            Debug.Log($"[SelfTest] shortest-path: tested={tested} detour(>1.2x and >12m)={bad} noGridPath={ungrid} worstRatio={worst:F2} (期待 detour=0){sb}");
+        }
+
+        float GridShortest(Vector2 a, Vector2 b, bool diag = false)
+        {
+            const float cell = 1f; float pad = 70f;
+            float x0 = Mathf.Min(a.x, b.x) - pad, z0 = Mathf.Min(a.y, b.y) - pad, x1 = Mathf.Max(a.x, b.x) + pad, z1 = Mathf.Max(a.y, b.y) + pad;
+            int W = Mathf.CeilToInt((x1 - x0) / cell), H = Mathf.CeilToInt((z1 - z0) / cell); if ((long)W * H > 1500000L) return -1f;
+            var state = new byte[W * H];   // 0=未調査 1=歩ける 2=だめ
+            bool Free(int ix, int iz)
+            {
+                if (ix < 0 || iz < 0 || ix >= W || iz >= H) return false; int k = ix + iz * W;
+                if (state[k] == 0) { float x = x0 + (ix + 0.5f) * cell, z = z0 + (iz + 0.5f) * cell; state[k] = (byte)(!city.Blocked(x, z, 0.4f) && graph.InCorridor(x, z, 0f) ? 1 : 2); }
+                return state[k] == 1;
+            }
+            bool Snap(Vector2 p, out int sx, out int sz)
+            {
+                int cx = Mathf.FloorToInt((p.x - x0) / cell), cz = Mathf.FloorToInt((p.y - z0) / cell);
+                for (int r = 0; r <= 6; r++) for (int dx = -r; dx <= r; dx++) for (int dz = -r; dz <= r; dz++) if (Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dz)) == r && Free(cx + dx, cz + dz)) { sx = cx + dx; sz = cz + dz; return true; }
+                sx = sz = 0; return false;
+            }
+            if (!Snap(a, out int ax, out int az) || !Snap(b, out int bx, out int bz)) return -1f;
+            var dist = new float[W * H]; System.Array.Fill(dist, float.MaxValue); var pq = new PriorityQueue<int, float>(); var prev = diag ? new int[W * H] : null;
+            float Hh(int ix, int iz) { float dx = Mathf.Abs(ix - bx), dz = Mathf.Abs(iz - bz); return (dx + dz + (1.4142f - 2f) * Mathf.Min(dx, dz)) * cell; }
+            dist[ax + az * W] = 0f; pq.Enqueue(ax + az * W, Hh(ax, az));
+            int[] ddx = { 1, -1, 0, 0, 1, 1, -1, -1 }, ddz = { 0, 0, 1, -1, 1, -1, 1, -1 };
+            while (pq.TryDequeue(out int cur, out _))
+            {
+                int cx = cur % W, cz = cur / W;
+                if (cx == bx && cz == bz && prev != null)
+                {   // 経路のうち、グラフの道から2.5m以上離れた区間(=グラフにない近道)を報告する
+                    int c2 = cur; var gaps = new System.Text.StringBuilder(); int run = 0; Vector2 first = Vector2.zero; int cnt = 0;
+                    while (c2 != ax + az * W) { var pp = new Vector2(x0 + (c2 % W + .5f) * cell, z0 + (c2 / W + .5f) * cell); if (!graph.NearEdge(pp, 2.5f)) { if (run == 0) first = pp; run++; } else { if (run >= 6 && cnt < 4) { gaps.Append($" gap({first.x:F0},{first.y:F0}) len~{run}m;"); cnt++; } run = 0; } c2 = prev[c2]; }
+                    if (run >= 6 && cnt < 4) gaps.Append($" gap({first.x:F0},{first.y:F0}) len~{run}m;"); Debug.Log("[SelfTest] offgraph:" + gaps);
+                }
+                if (cx == bx && cz == bz) return dist[cur] + (a - new Vector2(x0 + (ax + .5f) * cell, z0 + (az + .5f) * cell)).magnitude + (b - new Vector2(x0 + (bx + .5f) * cell, z0 + (bz + .5f) * cell)).magnitude;
+                for (int k = 0; k < 8; k++)
+                {
+                    int nx = cx + ddx[k], nz = cz + ddz[k]; if (!Free(nx, nz)) continue;
+                    if (k >= 4 && (!Free(cx + ddx[k], cz) || !Free(cx, cz + ddz[k]))) continue;   // 角を斜めにすり抜けない
+                    float nd = dist[cur] + (k < 4 ? cell : 1.4142f * cell); int ni = nx + nz * W;
+                    if (nd < dist[ni]) { dist[ni] = nd; if (prev != null) prev[ni] = cur; pq.Enqueue(ni, nd + Hh(nx, nz)); }
+                }
+            }
+            return -1f;
+        }
+
         void GoHome()
         {
             state = GameState.Menu; panel = UiPanel.None; beam.SetActive(false); Time.timeScale = 1f;

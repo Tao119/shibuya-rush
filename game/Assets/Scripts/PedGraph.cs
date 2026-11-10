@@ -6,7 +6,7 @@ namespace ShibuyaRush
     /// <summary>道路中心線から作る歩行者グラフ。人混みの経路(ハブへの最短経路表)とBot用の経路探索に使う。</summary>
     public class PedGraph
     {
-        public struct Edge { public int a, b; public float len, width; public Vector2 dir; public int sig; public float lA, lB; public bool car; }  // sig: 0=信号なし、1以上=信号つき横断歩道(位相オフセット秒+1)
+        public struct Edge { public int a, b; public float len, width; public Vector2 dir; public int sig; public float lA, lB; public bool car; public bool routeOnly; }  // sig: 0=信号なし、1以上=信号つき横断歩道(位相オフセット秒+1)
         public readonly List<Vector2> nodes = new List<Vector2>();
         public readonly List<Edge> edges = new List<Edge>();
         public readonly List<float> nodeLift = new List<float>();
@@ -221,6 +221,42 @@ namespace ShibuyaRush
             return added;
         }
 
+        /// <summary>
+        /// 経路用の近道: 歩ける範囲を車道ごと斜めに横切る直線を、各ノードから近い順に最大8本まで経路専用の辺として足す。
+        /// プレイヤーは歩ける範囲ならどこでも歩けるので、案内する最短経路はそれを使う。人混みは使わない(車の前を横切らせない)。
+        /// </summary>
+        public int HealRoutes(float maxDist, System.Func<float, float, bool> blocked)
+        {
+            var cells = new Dictionary<long, List<int>>(); float cs = maxDist;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                if (!inMain[i] || nodeLift[i] > 0.3f) continue;
+                long k = GK(Mathf.FloorToInt(nodes[i].x / cs), Mathf.FloorToInt(nodes[i].y / cs)); if (!cells.TryGetValue(k, out var l)) cells[k] = l = new List<int>(); l.Add(i);
+            }
+            int added = 0; int n0 = nodes.Count; var cand = new List<(float d, int j)>();
+            for (int i = 0; i < n0; i++)
+            {
+                if (!inMain[i] || nodeLift[i] > 0.3f) continue; int cx = Mathf.FloorToInt(nodes[i].x / cs), cz = Mathf.FloorToInt(nodes[i].y / cs); cand.Clear();
+                for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++)
+                    if (cells.TryGetValue(GK(cx + dx, cz + dz), out var l))
+                        foreach (int j in l)
+                        {
+                            if (j <= i) continue; float d = (nodes[j] - nodes[i]).magnitude; if (d < 6f || d > maxDist || Connected(i, j)) continue;
+                            bool near = false; foreach (int e in adj[i]) if (Connected(Other(e, i), j)) { near = true; break; }
+                            if (!near) cand.Add((d, j));
+                        }
+                cand.Sort((x, y) => x.d.CompareTo(y.d)); int tried = 0;
+                foreach (var (d, j) in cand)
+                {
+                    if (tried++ >= 8) break; var a = nodes[i]; var b = nodes[j]; bool ok = true;
+                    for (float s = 1f; s < d && ok; s += 1.5f) { var p = Vector2.Lerp(a, b, s / d); if (blocked(p.x, p.y) || !InCorridor(p.x, p.y, 0f)) ok = false; }
+                    if (!ok) continue;
+                    AddEdge(i, j, 3f, false, 0f, 0f, false); var ed = edges[edges.Count - 1]; ed.routeOnly = true; edges[edges.Count - 1] = ed; added++;
+                }
+            }
+            return added;
+        }
+
         public float[] freeL, freeR;   // 各辺の中心から左右の壁までの空き幅(最大12m)。人もプレイヤーも、この範囲の中だけを歩く
 
         /// <summary>各辺について、中心から左右に建物へぶつかるまでの距離を測る。高架の辺は道幅のまま。</summary>
@@ -230,6 +266,7 @@ namespace ShibuyaRush
             for (int id = 0; id < edges.Count; id++)
             {
                 var e = edges[id]; if (e.width <= 0f || !inMain[e.a]) continue;
+                if (e.routeOnly) { freeL[id] = freeR[id] = 0.3f; continue; }
                 float half = Mathf.Max(0.3f, (e.width - 1f) * 0.5f); freeL[id] = freeR[id] = half;
                 if (blocked == null || e.lA > 0.05f || e.lB > 0.05f) continue;
                 var a = nodes[e.a]; var n = new Vector2(-e.dir.y, e.dir.x);
@@ -376,6 +413,7 @@ namespace ShibuyaRush
                 if (du > dist[u]) continue;
                 foreach (int e in adj[u])
                 {
+                    if (edges[e].routeOnly) continue;   // 車道を斜めに横切る近道は、経路の案内用。人混みは使わない
                     int v = Other(e, u); float nd = du + edges[e].len;
                     if (nd < dist[v]) { dist[v] = nd; toward[v] = e; pq.Enqueue(v, nd); }  // vからはeを通ればuに近づく
                 }

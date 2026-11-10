@@ -86,7 +86,8 @@ namespace ShibuyaRush
             city.Exempt = null;   // 例外は設けない: 壁は高さで判定する(高架の上は屋根より高ければ通れる)
             int pruned = graph.Prune(city.InsideBuilding, false);
             graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f));
-            int healed = graph.Heal(9f, (x, z) => city.Blocked(x, z, 0.4f)); Debug.Log($"[Graph] gap-healing edges added={healed}"); if (healed > 0) graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f));
+            int healed = graph.Heal(9f, (x, z) => city.Blocked(x, z, 0.4f)); Debug.Log($"[Graph] gap-healing edges added={healed}"); var swH = System.Diagnostics.Stopwatch.StartNew(); if (healed > 0) graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f));
+            int healedR = graph.HealRoutes(30f, (x, z) => city.Blocked(x, z, 0.4f)); graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f)); Debug.Log($"[Graph] route-only shortcuts added={healedR} ({swH.ElapsedMilliseconds}ms)");
             city.MakeWalkable(graph, M("Walkway")); city.MakeStairs(graph, M("Walkway"));
             var lm = new List<Vector2>(); foreach (var q in data.pois) lm.Add(new Vector2(q.x, q.z));
             lm.Add(Vector2.zero);
@@ -133,7 +134,7 @@ namespace ShibuyaRush
             if (selfTest) { crowd.Stream = false; RunCollisionTests(); crowd.Stream = true; }
             Debug.Log($"[Shibuya] roads={data.roads.Length} buildings={city.BuildingCount} nodes={graph.nodes.Count} main={graph.MainCount} edges={graph.edges.Count} hubs={graph.hubNodes.Length} crowd={crowd.Count} post={fx.PostOk} trees={props.TreeCount} lamps={props.LampCount} signals={props.SignalCount} neon={props.NeonCount}");
             if (shotDir != null) Directory.CreateDirectory(shotDir);
-            if (selfTest) RunLevelTests();
+            if (selfTest) { RunLevelTests(); RunRouteOptimalityTest(); }
             crowd.Recenter(Vector2.zero, 0f);
             if (autoplay) StartLevel(poiIndex >= 0 ? levels.MakeFree(poiIndex) : levels.Make(levelArg));
             else

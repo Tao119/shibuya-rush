@@ -245,6 +245,12 @@ namespace ShibuyaRush
             var arr = chevL.ToArray(); for (int i = 0; i < arr.Length; i += 500) Graphics.RenderMeshInstanced(rp, chevron, 0, arr, Mathf.Min(500, arr.Length - i), 0);
         }
 
+        /// <summary>スタックから抜ける(ポーズ画面のボタン、またはUキー)。道の上に戻し、時間を3秒足す。</summary>
+        void UnstickPlayer()
+        {
+            player.Unstick(graph); if (!spec.free) raceT += 3f; Pop("スタック脱出 +3秒", pw0() + Vector3.up * 2.5f, new Color(1f, .8f, .5f), 1.2f); fx.PlayPower(); Resume();
+        }
+
         void Pause() { if (state == GameState.Playing) { state = GameState.Paused; } }
         void Resume() { if (state == GameState.Paused) state = GameState.Playing; }
         void OnApplicationPause(bool paused) { if (paused && state == GameState.Playing && !autoplay) Pause(); }

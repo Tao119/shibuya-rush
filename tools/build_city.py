@@ -120,6 +120,9 @@ try:
     def pl(r): return LineString([(r["p"][k], r["p"][k + 1]) for k in range(0, len(r["p"]), 2)])
     for i in lifted:
         r = roads[i]
+        # 短すぎて、ほぼ垂直の壁のような坂になる高架(例: マークシティ前の長さ6mで高さ10.4mの道)は捨てる
+        rise = max([r["lift"] - r["l0"] if r["l0"] < r["lift"] else 0, r["lift"] - r["l1"] if r["l1"] < r["lift"] else 0])
+        if rise > 0 and rise / max(1.0, min(25.0, CHK(r) * 0.45)) * 1.5 > 0.6: drop.add(i); continue
         if r["cls"] in ("footway", "path", "pedestrian") and r["l0"] == 0 and r["l1"] == 0 and CHK(r) < 60: drop.add(i)
         elif nishi_zone is not None and r["cls"] in ("footway", "path", "pedestrian", "steps") and pl(r).intersects(nishi_zone): drop.add(i)
     roads = [r for i, r in enumerate(roads) if i not in drop]; print("overlapping elevated paths dropped:", len(drop))

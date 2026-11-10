@@ -484,10 +484,11 @@ namespace ShibuyaRush
         // ================== ポーズ ==================
         void DrawPause(float W, float H)
         {
-            Dim(0.6f); float cw = Mathf.Min(W - 20f, 420f), chh = 400f; var p = new Rect(W / 2 - cw / 2, (L.y0 + L.y1) / 2f - chh / 2f, cw, chh); Panel(p, new Color(.17f, .15f, .38f, .98f), 6f);
+            Dim(0.6f); float cw = Mathf.Min(W - 20f, 420f), chh = 460f; var p = new Rect(W / 2 - cw / 2, (L.y0 + L.y1) / 2f - chh / 2f, cw, chh); Panel(p, new Color(.17f, .15f, .38f, .98f), 6f);
             Label(new Rect(p.x, p.y + 10, p.width, 54), "ポーズ", St(36), Color.white); float y = p.y + 74f; float bw = p.width - 40f;
             if (Btn(new Rect(p.x + 20, y, bw, 52), "つづける", new Color(.25f, .78f, .38f), 22)) Resume(); y += 60f;
             if (Btn(new Rect(p.x + 20, y, bw, 48), "やりなおす", Candy[3], 20)) StartLevel(spec); y += 56f;
+            if (Btn(new Rect(p.x + 20, y, bw, 48), spec.free ? "スタックから抜ける" : "スタックから抜ける (+3秒)", Candy[1], 18)) UnstickPlayer(); y += 56f;
             if (Btn(new Rect(p.x + 20, y, bw, 48), "ホームにもどる", Candy[4], 20)) GoHome(); y += 56f;
             var d = Store.D; float hw = (bw - 8f) / 2f;
             if (Btn(new Rect(p.x + 20, y, hw, 44), "おんがく " + (d.music ? "ON" : "OFF"), d.music ? Candy[2] : new Color(.5f, .45f, .6f), 16)) { d.music = !d.music; fx.SetAudio(d.music, d.sfx); Store.Commit(); }

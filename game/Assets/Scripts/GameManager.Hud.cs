@@ -121,7 +121,7 @@ namespace ShibuyaRush
         {
             if (c.a < 0.02f || string.IsNullOrEmpty(s)) return;
             float k = Mathf.Clamp(st.fontSize / 26f, 1f, 3.2f); st.normal.textColor = new Color(0.1f, 0.08f, 0.2f, 0.92f * Mathf.Min(1f, c.a * 1.2f));
-            var outline = touchMode ? OutlineLite : OutlineFull;
+            var outline = touchMode ? OutlineLite : OutlineFull; k /= Mathf.Max(1f, L.S);   // 縁取りの太さは画面上の実寸で決める(スマホは画面が約2.4倍に拡大されるため、そのままだと文字が二重に見えて読めない)
             for (int i = 0; i < outline.Length; i++) { var o = outline[i]; GUI.Label(new Rect(r.x + o.x * k, r.y + o.y * k, r.width, r.height), s, st); }
             st.normal.textColor = c; GUI.Label(r, s, st);
         }

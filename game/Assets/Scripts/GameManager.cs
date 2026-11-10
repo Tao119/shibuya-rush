@@ -94,6 +94,7 @@ namespace ShibuyaRush
             playerHr = new HumanoidRenderer(new[] { M("PlayerTint") }, M("PlayerPants"), M("Skin"));
             crowd = new Crowd(graph, crowdHr, crowdCount, 12345, (x, z) => city.Blocked(x, z, 0.5f));
             if (touchMode) ApplyMobileProfile();
+            crowd.Solid = (x, z) => city.SolidPush(x, z, 0.3f); crowd.InBuilding = city.InsideBuilding;
             props = new Props(data, city, graph, city.Root.transform, touchMode); if (touchMode) props.DrawDist = 80f;
             carGraph = new PedGraph(data, true); int prunedCar = carGraph.Prune(city.InsideBuilding, false); Debug.Log($"[Graph] pruned walk={pruned} car={prunedCar}"); carGraph.BuildHubs(Mathf.Min(150, Mathf.Max(2, carGraph.MainCount / 4)), 11, new List<Vector2>());
             var carMats = new Material[6]; for (int i = 0; i < carMats.Length; i++) carMats[i] = M("Car" + i);
@@ -168,6 +169,8 @@ namespace ShibuyaRush
                 for (int f = 0; f < 120; f++) { pl.Tick(1f / 60f, -dir, false, false, false); minD = Mathf.Min(minD, Vector2.Distance(pl.pos, q)); }
                 minAll = Mathf.Min(minAll, minD); if (minD < 0.4f) cp++;
             }
+            { int inB = 0, ground = 0; for (int i = 0; i < crowd.Count; i++) { if (crowd.LiftOf(i) > 0.3f) continue; ground++; var q = crowd.PosOf(i); if (city.InsideBuilding(q.x, q.y)) inB++; }
+              Debug.Log($"[SelfTest] crowd inside building: {inB} of {ground} ground agents (期待 0に近い)"); }
             // (3) ランダムに走り回る(ダッシュ・すり抜け・かき分け込み)プレイヤーが、建物の中・柱の中に入らないか
             { var rf = new System.Random(77); int fz = 0, steps = 0, inPillar = 0;
               for (int k = 0; k < 150; k++)
@@ -271,6 +274,7 @@ namespace ShibuyaRush
             else if (state == GameState.Playing)
             {
                 if (!autoplay && (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P))) Pause();
+                if (!autoplay && Input.GetKeyDown(KeyCode.U)) UnstickPlayer();
                 wish = autoplay ? BotWish(out dash, out slip, out shove) : ReadWish(out dash, out slip, out shove);
                 if (!fx.ClockFrozen) raceT += dt;
                 pickups.Tick(dt, player.pos, player.lift, Mathf.Max(magnetBase, magnetT > 0f ? 8f : 0f));

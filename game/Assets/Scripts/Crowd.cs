@@ -26,13 +26,14 @@ namespace ShibuyaRush
         public float NearDist = 55f, FarDist = 230f;
         /// <summary>人はプレイヤーの周囲この半径の中だけにいる。外に出た人は、半径の内側(外寄り)の道に出し直す。</summary>
         public float ActiveRadius = 180f; public bool Stream = true;
+        public System.Func<float, float, Vector2> Solid; public System.Func<float, float, bool> InBuilding;   // 木・柱をよける / 建物の中にいたら道の中心へ戻す(近くの人だけ)
         int[] cand; float[] candCum; Vector2[] candMid;
 
-        float[] fL, fR;   // 道の中心から左右の壁までの空き幅(プレイヤーが歩ける範囲に人も歩けるように)
+        System.Func<float, float, bool> spawnBlocked; float[] fL, fR;   // 道の中心から左右の壁までの空き幅(プレイヤーが歩ける範囲に人も歩けるように)
 
         public Crowd(PedGraph graph, HumanoidRenderer renderer, int count, int seed, System.Func<float, float, bool> blocked = null)
         {
-            g = graph; hr = renderer; a = new Agent[count]; next = new int[count]; rng = new System.Random(seed);
+            g = graph; hr = renderer; spawnBlocked = blocked; a = new Agent[count]; next = new int[count]; rng = new System.Random(seed);
             System.Array.Fill(cellHead, -1);
             var cum = new List<float>(); var ids = new List<int>(); float tot = 0;
             for (int i = 0; i < g.edges.Count; i++)
@@ -56,7 +57,7 @@ namespace ShibuyaRush
                 a[i].lateral = Lat(eid, a[i].toNode == e.b, rng.NextDouble() < 0.5 ? 1f : -1f, 0f, false);
                 a[i].phase = (float)rng.NextDouble() * 6.28f; a[i].tint = rng.Next(0, hr.TintCount);
                 a[i].scale = 0.88f + (float)rng.NextDouble() * 0.22f;
-                a[i].pos = Target(i);
+                a[i].pos = Target(i); if (spawnBlocked != null && spawnBlocked(a[i].pos.x, a[i].pos.y)) { a[i].lateral = 0f; a[i].pos = Target(i); }
             }
         }
 
@@ -89,7 +90,7 @@ namespace ShibuyaRush
             }
             int eid = cand[best]; var e = g.edges[eid]; bool fwd = rng.NextDouble() < 0.5; ref var ag = ref a[i];
             ag.edge = eid; ag.toNode = fwd ? e.b : e.a; ag.t = (float)rng.NextDouble() * e.len; ag.pending = -1; ag.hub = rng.Next(g.hubNodes.Length);
-            ag.lateral = Lat(eid, ag.toNode == e.b, rng.NextDouble() < 0.5 ? 1f : -1f, 0f, false); ag.off = Vector2.zero; ag.vel = Vector2.zero; ag.air = 0f; ag.airV = 0f; ag.spin = 0f; ag.pos = Target(i);
+            ag.lateral = Lat(eid, ag.toNode == e.b, rng.NextDouble() < 0.5 ? 1f : -1f, 0f, false); ag.off = Vector2.zero; ag.vel = Vector2.zero; ag.air = 0f; ag.airV = 0f; ag.spin = 0f; ag.pos = Target(i); if (spawnBlocked != null && spawnBlocked(ag.pos.x, ag.pos.y)) { ag.lateral = 0f; ag.pos = Target(i); }
             float fr = Mathf.Clamp01(ag.t / Mathf.Max(e.len, 0.01f)); ag.lift = ag.toNode == e.b ? Mathf.Lerp(e.lA, e.lB, fr) : Mathf.Lerp(e.lB, e.lA, fr);
         }
 
@@ -192,6 +193,11 @@ namespace ShibuyaRush
                 if (ag.off.sqrMagnitude > 9f) ag.off = ag.off.normalized * 3f;
                 { var ee = g.edges[ag.edge]; float fr = Mathf.Clamp01(ag.t / Mathf.Max(ee.len, 0.01f)); ag.lift = ag.toNode == ee.b ? Mathf.Lerp(ee.lA, ee.lB, fr) : Mathf.Lerp(ee.lB, ee.lA, fr); }
                 ag.sq = ag.lift > 0.3f && ag.lift < 20f ? Mathf.Clamp((g.Clearance(ag.pos.x, ag.pos.y, ag.lift) - 0.1f) / 2.0f, 0.55f, 1f) : 1f;   // 床の下をくぐる坂では、頭が突き抜けないよう縮む
+                if ((ag.pos - player).sqrMagnitude < 3600f && ag.lift < 0.3f)
+                {
+                    if (Solid != null) { var sp = Solid(ag.pos.x, ag.pos.y); if (sp.sqrMagnitude > 0f) ag.off += sp; }
+                    if (InBuilding != null && InBuilding(ag.pos.x, ag.pos.y)) { ag.lateral = 0f; ag.off = Vector2.zero; ag.pos = Target(i); }
+                }
                 var d = ag.pos - player;
                 if (playerSolid && d.sqrMagnitude < 0.2f && Mathf.Abs(ag.lift - playerLift) < 1.5f)
                 {

@@ -45,6 +45,7 @@ namespace ShibuyaRush
             vel = Vector2.Lerp(vel, want, 1f - Mathf.Exp(-(stagger > 0f ? 4f : 10f) * dt));
             Move(vel * dt);
             Collide(dt);
+            if (lift < 2.2f) { var sp = city.SolidPush(pos.x, pos.y, 0.35f); if (sp.sqrMagnitude > 0f) { var np2 = pos + sp; if (!city.Blocked(np2.x, np2.y)) pos = np2; } }   // 木・街灯・柱は引っかからず、なめらかに避けて通る
 
             float tgt = graph.ReachableLift(pos.x, pos.y, lift);
             lift = Mathf.MoveTowards(lift, tgt, (tgt > lift ? 8f : 14f) * dt);
@@ -85,6 +86,8 @@ namespace ShibuyaRush
         }
 
         public void ResetState() { dashCd = slipCd = shoveCd = 0; dashT = slipT = shoveFx = stagger = shieldT = 0; vel = Vector2.zero; speedNow = 0; bumpCd = 0; }
+        /// <summary>スタックから抜ける: いまの階のいちばん近い道の点へ移す。</summary>
+        public void Unstick(PedGraph g) { int n = g.NearestNodeAt(pos, lift); pos = g.nodes[n]; lift = g.nodeLift[n]; vel = Vector2.zero; stagger = 0f; }
         public void Knock(Vector2 v) { vel = v; stagger = Mathf.Max(stagger, 0.4f); }
         public void Shove(Vector2 d) { pos += d; }
 
@@ -95,13 +98,21 @@ namespace ShibuyaRush
             // すでに建物の中(駅構内など、通路から入った場合)にいるなら、建物の中どうしの移動は許す。外から壁を抜けて入ることはできない
             if (city.Blocked(pos.x, pos.y, 0f) || (lift < 1.5f && !graph.InCorridor(pos.x, pos.y, lift))) Rescue();   // 建物の中に入り込んでいたら、いちばん近い外に出す(中を歩き回らせない)
             // 柱は地上(1階)の人だけにぶつかる。2階にいる間は、2階の床の外へは出られない(落ちない)
-            bool Free(float x, float z) => !city.Blocked(x, z) && (lift >= 1.5f || graph.InCorridor(x, z, lift)) && !(lift < 2.2f && city.HitPillar(x, z, 0.35f)) && !(lift < 1.0f && graph.Clearance(x, z, lift) < 2.2f) && (lift < 1.5f || allowDrop || graph.ReachableLift(x, z, lift) > lift - 1.0f);
+            bool Free(float x, float z) => !city.Blocked(x, z) && SlopeOk(x, z) && (lift >= 1.5f || graph.InCorridor(x, z, lift)) && !(lift < 1.0f && graph.Clearance(x, z, lift) < 2.2f) && (lift < 1.5f || allowDrop || graph.ReachableLift(x, z, lift) > lift - 1.0f);
             var n = pos + d;
             if (Free(n.x, n.y)) { pos = n; return; }
             if (Free(pos.x + d.x, pos.y)) pos.x += d.x;
             else if (Free(pos.x, pos.y + d.y)) pos.y += d.y;
             else if (city.Blocked(pos.x, pos.y)) pos = n;   // 壁の余白に入ってしまっている場合は、抜け出すために動けるようにする
             else vel = Vector2.zero;
+        }
+
+        /// <summary>急な斜面(登りが0.75=約37度より急、降りは1.0より急)は進めない。</summary>
+        bool SlopeOk(float x, float z)
+        {
+            var d = new Vector2(x - pos.x, z - pos.y); float dist = d.magnitude; if (dist < 0.02f) return true;
+            float g1 = graph.ReachableLift(x, z, lift), g0 = graph.ReachableLift(pos.x, pos.y, lift); float slope = (g1 - g0) / dist;
+            return slope < 0.75f && (allowDrop || slope > -1.0f);
         }
 
         /// <summary>建物の壁の内側にいるとき、最も近い空いた場所へ移す。</summary>

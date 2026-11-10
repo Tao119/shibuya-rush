@@ -49,7 +49,7 @@ namespace ShibuyaRush
                 var e = graph.edges[id]; if (e.sig == 0) continue;
                 var a = graph.nodes[e.a]; var b = graph.nodes[e.b]; var n = new Vector2(-e.dir.y, e.dir.x);
                 foreach (var (p, yaw) in new[] { (a + n * 1.6f - e.dir * 0.3f, Mathf.Atan2(e.dir.x, e.dir.y) * Mathf.Rad2Deg), (b + n * 1.6f + e.dir * 0.3f, Mathf.Atan2(-e.dir.x, -e.dir.y) * Mathf.Rad2Deg) })
-                { if (city.InsideBuilding(p.x, p.y)) continue; city.AddSolid(p, 0.25f); signals.Add(new Item { pos = new Vector3(p.x, hf.Height(p.x, p.y) + 0, p.y), yaw = yaw, scale = 1f }); signalEdge.Add(id); }
+                { if (city.InsideBuilding(p.x, p.y)) continue; signals.Add(new Item { pos = new Vector3(p.x, hf.Height(p.x, p.y) + 0, p.y), yaw = yaw, scale = 1f }); signalEdge.Add(id); }
             }
             BuildNeon(data, city, parent, mobile); BuildHachiko(city, parent);
         }

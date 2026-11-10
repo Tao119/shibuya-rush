@@ -85,7 +85,9 @@ namespace ShibuyaRush
             graph = new PedGraph(data);
             city.Exempt = null;   // 例外は設けない: 壁は高さで判定する(高架の上は屋根より高ければ通れる)
             int pruned = graph.Prune(city.InsideBuilding, false);
-            graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f)); city.MakeWalkable(graph, M("Walkway")); city.MakeStairs(graph, M("Walkway"));
+            graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f));
+            int healed = graph.Heal(9f, (x, z) => city.Blocked(x, z, 0.4f)); Debug.Log($"[Graph] gap-healing edges added={healed}"); if (healed > 0) graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f));
+            city.MakeWalkable(graph, M("Walkway")); city.MakeStairs(graph, M("Walkway"));
             var lm = new List<Vector2>(); foreach (var q in data.pois) lm.Add(new Vector2(q.x, q.z));
             lm.Add(Vector2.zero);
             graph.BuildHubs(300, 7, lm);

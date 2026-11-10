@@ -178,6 +178,49 @@ namespace ShibuyaRush
         /// 建物の中を通れる場所か。駅のデッキや階段(高架)の下をくぐる所と、建物の中を抜ける細い歩行者通路(中心線から1.6m以内)だけ。
         /// 車道や路地の幅に合わせて広く許すと、細い道に面した建物の壁をすり抜けられてしまう。
         /// </summary>
+        bool OnCarRoad(Vector2 p)
+        {
+            if (!edgeGrid.TryGetValue(GK(Mathf.FloorToInt(p.x / GridCell), Mathf.FloorToInt(p.y / GridCell)), out var l)) return false;
+            foreach (int id in l)
+            {
+                var e = edges[id]; if (!e.car || e.width <= 0f) continue; var a = nodes[e.a]; var ab = nodes[e.b] - a;
+                float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f)); if ((p - (a + ab * t)).magnitude < e.width * 0.5f) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 道のつなぎ目の隙間をふさぐ: 近い(maxDist以内)のに辺でつながっていない地上のノードどうしを、
+        /// 間がずっと歩ける範囲(建物なし・車道を横切らない)なら辺でつなぐ。道の座標ずれや広場のせいで、通れる所なのに経路が遠回りやUターンになるのを防ぐ。
+        /// </summary>
+        public int Heal(float maxDist, System.Func<float, float, bool> blocked)
+        {
+            var cells = new Dictionary<long, List<int>>(); float cs = maxDist;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                if (!inMain[i] || nodeLift[i] > 0.3f) continue;
+                long k = GK(Mathf.FloorToInt(nodes[i].x / cs), Mathf.FloorToInt(nodes[i].y / cs)); if (!cells.TryGetValue(k, out var l)) cells[k] = l = new List<int>(); l.Add(i);
+            }
+            int added = 0; int n0 = nodes.Count;
+            for (int i = 0; i < n0; i++)
+            {
+                if (!inMain[i] || nodeLift[i] > 0.3f) continue; int cx = Mathf.FloorToInt(nodes[i].x / cs), cz = Mathf.FloorToInt(nodes[i].y / cs);
+                for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++)
+                    if (cells.TryGetValue(GK(cx + dx, cz + dz), out var l))
+                        foreach (int j in l)
+                        {
+                            if (j <= i) continue; var a = nodes[i]; var b = nodes[j]; float d = (b - a).magnitude; if (d < 2.5f || d > maxDist || Connected(i, j)) continue;
+                            bool near = false; foreach (int e in adj[i]) if (Connected(Other(e, i), j)) { near = true; break; }   // 1つ挟んでつながっているなら不要
+                            if (near) continue;
+                            bool ok = true;
+                            for (float s = 0.5f; s < d && ok; s += 1f) { var p = Vector2.Lerp(a, b, s / d); if (blocked(p.x, p.y) || !InCorridor(p.x, p.y, 0f) || OnCarRoad(p)) ok = false; }
+                            if (ok) { AddEdge(i, j, 3f, false, 0f, 0f, false); added++; }
+                        }
+            }
+            if (added > 0) { FindMainComponent(); edgeGrid.Clear(); BuildEdgeGrid(); }
+            return added;
+        }
+
         public float[] freeL, freeR;   // 各辺の中心から左右の壁までの空き幅(最大12m)。人もプレイヤーも、この範囲の中だけを歩く
 
         /// <summary>各辺について、中心から左右に建物へぶつかるまでの距離を測る。高架の辺は道幅のまま。</summary>

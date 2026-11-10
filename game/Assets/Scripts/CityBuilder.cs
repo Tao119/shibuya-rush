@@ -328,8 +328,8 @@ namespace ShibuyaRush
             float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
             foreach (var q in poly) { x0 = Mathf.Min(x0, q.x); z0 = Mathf.Min(z0, q.y); x1 = Mathf.Max(x1, q.x); z1 = Mathf.Max(z1, q.y); }
             boxes.Add(new Vector4(x0, z0, x1, z1));
-            for (int cx = Mathf.FloorToInt(x0 / Cell); cx <= Mathf.FloorToInt(x1 / Cell); cx++)
-                for (int cz = Mathf.FloorToInt(z0 / Cell); cz <= Mathf.FloorToInt(z1 / Cell); cz++)
+            for (int cx = Mathf.FloorToInt((x0 - 0.8f) / Cell); cx <= Mathf.FloorToInt((x1 + 0.8f) / Cell); cx++)   // 余白ぶん広げて登録(格子の境目で壁を見落とさない)
+                for (int cz = Mathf.FloorToInt((z0 - 0.8f) / Cell); cz <= Mathf.FloorToInt((z1 + 0.8f) / Cell); cz++)
                 {
                     long k = Key(cx, cz);
                     if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<int>();

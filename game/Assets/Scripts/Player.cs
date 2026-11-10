@@ -91,7 +91,11 @@ namespace ShibuyaRush
         public void Knock(Vector2 v) { vel = v; stagger = Mathf.Max(stagger, 0.4f); }
         public void Shove(Vector2 d) { pos += d; }
 
-        void Move(Vector2 d) { graph.walkLift = lift; city.QueryLift = lift; try { MoveInner(d); } finally { graph.walkLift = 0f; city.QueryLift = 0f; } }
+        void Move(Vector2 d)
+        {   // 1歩を0.2m以下に刻む(処理落ちで1フレームの移動が大きくても、薄い壁をすり抜けない)
+            graph.walkLift = lift; city.QueryLift = lift; int n = Mathf.Max(1, Mathf.CeilToInt(d.magnitude / 0.2f)); var step = d / n;
+            try { for (int i = 0; i < n; i++) MoveInner(step); } finally { graph.walkLift = 0f; city.QueryLift = 0f; }
+        }
 
         void MoveInner(Vector2 d)
         {

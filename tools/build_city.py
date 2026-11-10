@@ -220,7 +220,23 @@ trees = points("trees"); lamps = points("lamps")
 print("trees", len(trees) // 2, "lamps", len(lamps) // 2)
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
-OUT.write_text(json.dumps({"roads": roads, "buildings": buildings, "pois": pois, "trees": trees, "lamps": lamps},
+# 歩ける広場・公園(OSMの面データ): 歩行者広場・広場・公園・遊び場。道の線だけでは表せない広がりを、ゲーム側で格子状の道にする
+areas = []
+areas_file = RAW / "areas.json"
+if areas_file.exists():
+    for e in json.load(open(areas_file))["elements"]:
+        t = e.get("tags", {})
+        kind = t.get("area:highway") or (t.get("highway") if t.get("area") == "yes" else None) or t.get("place") or t.get("leisure")
+        ok = (t.get("area:highway") in ("pedestrian", "footway")) or (t.get("highway") == "pedestrian") or t.get("place") == "square" or t.get("leisure") in ("park", "playground")
+        if not ok: continue
+        rings = [e.get("geometry") or []] if e["type"] == "way" else [m["geometry"] for m in e.get("members", []) if m.get("role") == "outer" and m.get("geometry")]
+        for r in rings:
+            if len(r) < 4: continue
+            pts = flat(r[:-1] if r[0] == r[-1] else r)
+            areas.append({"p": pts, "name": t.get("name", "")})
+    print("walk areas:", len(areas))
+
+OUT.write_text(json.dumps({"roads": roads, "buildings": buildings, "pois": pois, "trees": trees, "lamps": lamps, "areas": areas},
                           ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 print("building height source:", stat)
 print(f"roads={len(roads)} buildings={len(buildings)} pois={len(pois)} {OUT.stat().st_size/1e6:.1f}MB")

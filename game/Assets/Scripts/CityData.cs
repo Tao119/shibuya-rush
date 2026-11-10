@@ -6,9 +6,10 @@ namespace ShibuyaRush
     [Serializable] public class RoadData { public string cls; public string name; public float w; public bool walk; public int sig, cross; public float lift, l0, l1; public bool bridge; public bool tunnel; public float[] p; }
     [Serializable] public class BuildingData { public float h; public string src; public string name; public float[] p; }
     [Serializable] public class PoiData { public long id; public string name; public float x; public float z; }
+    [Serializable] public class AreaData { public float[] p; public string name; }
     [Serializable] public class CityData
     {
-        public RoadData[] roads; public BuildingData[] buildings; public PoiData[] pois; public float[] trees, lamps;
+        public RoadData[] roads; public BuildingData[] buildings; public PoiData[] pois; public AreaData[] areas; public float[] trees, lamps;
         public static float PolyLen(float[] p)
         {
             float L = 0; for (int i = 0; i + 3 < p.Length; i += 2) L += Mathf.Sqrt((p[i + 2] - p[i]) * (p[i + 2] - p[i]) + (p[i + 3] - p[i + 1]) * (p[i + 3] - p[i + 1]));

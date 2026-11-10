@@ -17,7 +17,8 @@ namespace ShibuyaRush
         public string missionDay = ""; public int[] mKind = new int[3], mTarget = new int[3], mProg = new int[3]; public bool[] mDone = new bool[3];
         public List<string> ach = new List<string>();
         public List<string> bestKeys = new List<string>(); public List<float> bestTimes = new List<float>(); public List<int> bestStars = new List<int>();
-        public bool music = true, sfx = true, haptics = true, tutorialDone;
+        public bool music = true, sfx = true, haptics = true, tutorialDone, noAds;
+        public int rewardedViews, interstitialViews;
         public int plays;
     }
 

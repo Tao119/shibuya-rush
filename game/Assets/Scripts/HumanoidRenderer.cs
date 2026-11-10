@@ -12,6 +12,7 @@ namespace ShibuyaRush
         readonly List<Matrix4x4>[] torsoL, armL; readonly List<Matrix4x4> legL = new List<Matrix4x4>(), headL = new List<Matrix4x4>();
         readonly Matrix4x4[] buf = new Matrix4x4[1000];
         public int TintCount => tints.Length;
+        public Material XRay;   // 設定すると、手前の物に隠れた部分をシルエットで描く
         public Matrix4x4 LastHead;                                   // 直前に追加した人の頭の行列(ぼうし用)
 
         public HumanoidRenderer(Material[] tints, Material pants, Material skin)
@@ -48,11 +49,16 @@ namespace ShibuyaRush
 
         public void Flush()
         {
+            if (XRay != null)
+            {   // 隠れた部分のシルエット(普通の描画の前に、同じ位置へもう一度描く)
+                for (int i = 0; i < tints.Length; i++) { Draw(torso, XRay, torsoL[i], false); Draw(arm, XRay, armL[i], false); }
+                Draw(head, XRay, headL, false); Draw(leg, XRay, legL, false);
+            }
             for (int i = 0; i < tints.Length; i++) { Draw(torso, tints[i], torsoL[i]); Draw(arm, tints[i], armL[i]); }
             Draw(head, skin, headL); Draw(leg, pants, legL);
         }
 
-        void Draw(Mesh m, Material mat, List<Matrix4x4> list)
+        void Draw(Mesh m, Material mat, List<Matrix4x4> list, bool clear = true)
         {
             var rp = new RenderParams(mat) { shadowCastingMode = ShadowCastingMode.Off, receiveShadows = false, layer = 0 };
             for (int i = 0; i < list.Count; i += buf.Length)
@@ -61,7 +67,7 @@ namespace ShibuyaRush
                 list.CopyTo(i, buf, 0, n);
                 Graphics.RenderMeshInstanced(rp, m, 0, buf, n);
             }
-            list.Clear();
+            if (clear) list.Clear();
         }
     }
 }

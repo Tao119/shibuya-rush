@@ -6,7 +6,7 @@ namespace ShibuyaRush
     /// <summary>道路中心線から作る歩行者グラフ。人混みの経路(ハブへの最短経路表)とBot用の経路探索に使う。</summary>
     public class PedGraph
     {
-        public struct Edge { public int a, b; public float len, width; public Vector2 dir; public int sig; public float lA, lB; public bool car; public bool routeOnly; }  // sig: 0=信号なし、1以上=信号つき横断歩道(位相オフセット秒+1)
+        public struct Edge { public int a, b; public float len, width; public Vector2 dir; public int sig; public float lA, lB; public bool car; public bool routeOnly, plaza; }  // sig: 0=信号なし、1以上=信号つき横断歩道(位相オフセット秒+1)
         public readonly List<Vector2> nodes = new List<Vector2>();
         public readonly List<Edge> edges = new List<Edge>();
         public readonly List<float> nodeLift = new List<float>();
@@ -257,6 +257,48 @@ namespace ShibuyaRush
             return added;
         }
 
+        static bool InPoly(Vector2[] p, float x, float z)
+        {
+            bool c = false;
+            for (int i = 0, j = p.Length - 1; i < p.Length; j = i++)
+                if ((p[i].y > z) != (p[j].y > z) && x < (p[j].x - p[i].x) * (z - p[i].y) / (p[j].y - p[i].y) + p[i].x) c = !c;
+            return c;
+        }
+
+        /// <summary>
+        /// 広場・公園(地図の面データ)の中に、step間隔の格子状の道を作る。道の線だけでは表せない広がりを、人もプレイヤーも歩けるようにする。
+        /// 建物・急斜面の場所には作らない。作った辺は plaza として、歩ける幅を広場の内側だけに抑える。
+        /// </summary>
+        public int AddAreas(AreaData[] areas, float step, System.Func<float, float, bool> blocked)
+        {
+            if (areas == null) return 0; int added = 0;
+            foreach (var ar in areas)
+            {
+                if (ar.p == null || ar.p.Length < 6) continue; int n = ar.p.Length / 2; var poly = new Vector2[n]; float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
+                for (int i = 0; i < n; i++) { poly[i] = new Vector2(ar.p[i * 2], ar.p[i * 2 + 1]); x0 = Mathf.Min(x0, poly[i].x); x1 = Mathf.Max(x1, poly[i].x); z0 = Mathf.Min(z0, poly[i].y); z1 = Mathf.Max(z1, poly[i].y); }
+                int gx = Mathf.CeilToInt((x1 - x0) / step) + 1, gz = Mathf.CeilToInt((z1 - z0) / step) + 1; if (gx * gz > 40000) continue;   // 広すぎる面(公園など)は対象外
+                var id = new int[gx, gz];
+                for (int i = 0; i < gx; i++) for (int j = 0; j < gz; j++)
+                {
+                    float x = x0 + i * step, z = z0 + j * step; id[i, j] = -1;
+                    if (InPoly(poly, x, z) && !blocked(x, z)) id[i, j] = Node(new Vector2(x, z));
+                }
+                int[] dx = { 1, 0, 1, 1 }, dz = { 0, 1, 1, -1 };
+                for (int i = 0; i < gx; i++) for (int j = 0; j < gz; j++)
+                {
+                    if (id[i, j] < 0) continue;
+                    for (int k = 0; k < 4; k++)
+                    {
+                        int ni = i + dx[k], nj = j + dz[k]; if (ni < 0 || nj < 0 || ni >= gx || nj >= gz || id[ni, nj] < 0 || id[ni, nj] == id[i, j] || Connected(id[i, j], id[ni, nj])) continue;
+                        var m = (nodes[id[i, j]] + nodes[id[ni, nj]]) * 0.5f; if (blocked(m.x, m.y)) continue;
+                        AddEdge(id[i, j], id[ni, nj], step, false, 0f, 0f, false); var ed = edges[edges.Count - 1]; ed.plaza = true; edges[edges.Count - 1] = ed; added++;
+                    }
+                }
+            }
+            if (added > 0) { FindMainComponent(); edgeGrid.Clear(); BuildEdgeGrid(); }
+            return added;
+        }
+
         public float[] freeL, freeR;   // 各辺の中心から左右の壁までの空き幅(最大12m)。人もプレイヤーも、この範囲の中だけを歩く
 
         /// <summary>各辺について、中心から左右に建物へぶつかるまでの距離を測る。高架の辺は道幅のまま。</summary>
@@ -267,6 +309,7 @@ namespace ShibuyaRush
             {
                 var e = edges[id]; if (e.width <= 0f || !inMain[e.a]) continue;
                 if (e.routeOnly) { freeL[id] = freeR[id] = 0.3f; continue; }
+                if (e.plaza) { freeL[id] = freeR[id] = e.len * 0.5f + 0.6f; continue; }
                 float half = Mathf.Max(0.3f, (e.width - 1f) * 0.5f); freeL[id] = freeR[id] = half;
                 if (blocked == null || e.lA > 0.05f || e.lB > 0.05f) continue;
                 var a = nodes[e.a]; var n = new Vector2(-e.dir.y, e.dir.x);

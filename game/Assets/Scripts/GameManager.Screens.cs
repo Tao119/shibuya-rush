@@ -137,6 +137,17 @@ namespace ShibuyaRush
             Bar(new Rect(bar.x, bar.y, Mathf.Max(8f, bar.width * (1f - adT / AdSeconds)), bar.height), new Color(.5f, 1f, .6f));
         }
 
+        // ================== 読み込み画面 ==================
+        void DrawLoading()
+        {
+            InitStyles(); ComputeLayout(); GUI.matrix = Matrix4x4.Scale(new Vector3(L.S, L.S, 1)); float W = L.W, H = L.H;
+            GUI.DrawTexture(new Rect(0, 0, W, H), gradTex, ScaleMode.StretchToFill, true);
+            string title = "SHIBUYA RUSH"; int ts = L.portrait ? 50 : 68; Label(new Rect(0, H * 0.30f, W, ts * 1.4f), title, new GUIStyle(huge) { fontSize = ts }, Color.white);
+            float bw = Mathf.Min(W - 80f, 420f); var bar = new Rect(W / 2 - bw / 2, H * 0.30f + ts * 1.7f, bw, 14f);
+            var old = GUI.color; GUI.color = new Color(0, 0, 0, .35f); GUI.DrawTexture(bar, Texture2D.whiteTexture); GUI.color = new Color(1f, .9f, .3f); GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Mathf.Clamp01(bootP), bar.height), Texture2D.whiteTexture); GUI.color = old;
+            Label(new Rect(0, bar.yMax + 12f, W, 30f), bootMsg + "…", new GUIStyle(small) { alignment = TextAnchor.MiddleCenter, fontSize = 18 }, Color.white);
+        }
+
         // ================== ホーム ==================
         void DrawHome()
         {
@@ -201,7 +212,7 @@ namespace ShibuyaRush
                 if (wf >= 1f && !modal && Tap(wr)) { panel = UiPanel.Shop; shopTab = 1; }
             }
             // モーダル
-            if (panel == UiPanel.Missions) DrawMissions(W, H); else if (panel == UiPanel.Settings) DrawSettings(W, H); else if (panel == UiPanel.Free) DrawFree(W, H);
+            if (panel == UiPanel.Missions) DrawMissions(W, H); else if (panel == UiPanel.Settings) DrawSettings(W, H); else if (panel == UiPanel.Credits) DrawCredits(W, H); else if (panel == UiPanel.Free) DrawFree(W, H);
             DrawDaily(W, H);
         }
 
@@ -219,7 +230,7 @@ namespace ShibuyaRush
         void ModalHeaderTop(Rect r, string title)
         {
             Panel(new Rect(r.x, r.y - 30, r.width, 104), new Color(.17f, .15f, .38f, 1f), 0f);
-            if (BackBtn(new Rect(r.x + 12, r.y + 10, 128, 56))) panel = UiPanel.None;
+            if (BackBtn(new Rect(r.x + 12, r.y + 10, 128, 56))) panel = panel == UiPanel.Credits ? UiPanel.Settings : UiPanel.None;
             Label(new Rect(r.x + 150, r.y + 10, r.width - 160, 56), title, St(30, TextAnchor.MiddleLeft), Color.white);
         }
 
@@ -266,7 +277,7 @@ namespace ShibuyaRush
         // ================== せってい ==================
         void DrawSettings(float W, float H)
         {
-            Dim(); var r = ModalRect(W, H, 520f, 560f); Panel(r, new Color(.17f, .15f, .38f, 1f), 6f); ModalHeader(r, "せってい", out var body); ModalHeaderTop(r, "せってい"); var d = Store.D;
+            Dim(); var r = ModalRect(W, H, 520f, 720f); Panel(r, new Color(.17f, .15f, .38f, 1f), 6f); ModalHeader(r, "せってい", out var body); ModalHeaderTop(r, "せってい"); var d = Store.D;
             float y = body.y + 4f;
             void Toggle(string name, bool on, Action<bool> set)
             {
@@ -277,6 +288,10 @@ namespace ShibuyaRush
             Toggle("おんがく", d.music, v => { d.music = v; fx.SetAudio(d.music, d.sfx); });
             Toggle("こうかおん", d.sfx, v => { d.sfx = v; fx.SetAudio(d.music, d.sfx); });
             Toggle("しんどう", d.haptics, v => d.haptics = v);
+            if (!d.noAds) { if (Btn(new Rect(body.x, y, body.width, 52), "広告を消す", new Color(1f, .6f, .2f), 20)) Purchases.BuyNoAds(ok => { toast = ok ? "広告を消しました(開発版の擬似購入)" : "購入できませんでした"; toastT = 2f; }); y += 60f; }
+            else { Label(new Rect(body.x, y, body.width, 40), "広告は表示されません", St(17), new Color(.7f, 1f, .8f)); y += 44f; }
+            { float hw = (body.width - 8f) / 2f; if (Btn(new Rect(body.x, y, hw, 48), "購入を復元", new Color(.4f, .38f, .62f), 16)) Purchases.Restore(ok => { toast = ok ? "購入を復元しました" : "復元できる購入はありません"; toastT = 2f; });
+              if (Btn(new Rect(body.x + hw + 8f, y, hw, 48), "クレジット・規約", new Color(.4f, .38f, .62f), 16)) panel = UiPanel.Credits; y += 56f; }
             bool armed = Time.unscaledTime < resetArmUntil;
             if (Btn(new Rect(body.x, y, body.width, 48), armed ? "もう一度おすと すべて消えます" : "データを初期化", armed ? new Color(.9f, .25f, .3f) : new Color(.5f, .45f, .6f), 18))
             {
@@ -284,6 +299,17 @@ namespace ShibuyaRush
             }
             y += 56f;
             Label(new Rect(body.x, y, body.width, body.yMax - y), "地図データ: OpenStreetMap contributors (ODbL)\n建物の高さ: PLATEAU (国土交通省) ・ 標高: 国土地理院\n実在の施設名は地図データに基づく表示です。", St(13, TextAnchor.UpperLeft, true), new Color(1, 1, 1, .7f));
+        }
+
+        // ================== クレジット・プライバシー ==================
+        float creditScroll;
+        void DrawCredits(float W, float H)
+        {
+            Dim(); var r = ModalRect(W, H, 560f, 760f); Panel(r, new Color(.17f, .15f, .38f, 1f), 6f); ModalHeader(r, "クレジット", out var body);
+            string text = "SHIBUYA RUSH\n\n【地図・地形のデータ】\n・OpenStreetMap contributors (ODbL)\n  © OpenStreetMap contributors\n・建物の高さ: 国土交通省 Project PLATEAU (CC BY 4.0)\n・標高: 国土地理院 基盤地図情報 数値標高モデル\n・通りや公共の場所の名前は地図データにもとづく表示です。企業・商業施設の名前は、実在の名称とは異なるパロディ名で、各企業・施設とは関係ありません。\n\n【フォント】\nM PLUS Rounded 1c (SIL Open Font License 1.1)\n\n【広告について】\nこのアプリは広告を表示します。広告の配信には端末の広告識別子が使われることがあります。\n\n【プライバシー】\n個人を特定する情報は、アプリ内に保存しません。進行データは端末内にのみ保存されます。\n\n【お問い合わせ】\nhttps://github.com/Tao119/shibuya-rush";
+            var st = St(15, TextAnchor.UpperLeft, true); float h = st.CalcHeight(new GUIContent(text), body.width - 12f) + 20f;
+            ScrollHandle(body, ref creditScroll, h + 60f); Label(new Rect(body.x + 6, body.y - creditScroll, body.width - 12f, h), text, st, new Color(1, 1, 1, .92f));
+            ModalHeaderTop(r, "クレジット"); Panel(new Rect(r.x, body.yMax, r.width, 40), new Color(.17f, .15f, .38f, 1f), 0f);
         }
 
         // ================== フリー(目的地えらび) ==================
@@ -454,10 +480,10 @@ namespace ShibuyaRush
             // ボタン
             float bh = touchMode ? 58f : 52f; float by = Mathf.Max(y + 2f, right.yMax - (spec.free ? bh : bh * 2 + 8f) - 2f); if (!two) by = Mathf.Max(y + 2f, right.yMax - bh * 2 - 8f);
             bool canNext = !spec.free; float half = (right.width - 12 - 8f) / 2f;
-            if (canNext) { if (Btn(new Rect(right.x + 6, by, right.width - 12, bh), touchMode ? "つぎのレベル" : "つぎのレベル [N]", new Color(.25f, .78f, .38f), 22) && t > 0.9f) { rouletteFrozen = -1f; StartLevel(levels.Make(Store.D.level)); } by += bh + 8f; }
+            if (canNext) { if (Btn(new Rect(right.x + 6, by, right.width - 12, bh), touchMode ? "つぎのレベル" : "つぎのレベル [N]", new Color(.25f, .78f, .38f), 22) && t > 0.9f) { rouletteFrozen = -1f; AfterRun(() => StartLevel(levels.Make(Store.D.level))); } by += bh + 8f; }
             float third = (right.width - 12f - 16f) / 3f;
-            if (Btn(new Rect(right.x + 6, by, third, bh), touchMode ? "もう一度" : "もう一度[R]", Candy[3], 15) && t > 0.9f) { rouletteFrozen = -1f; StartLevel(spec); }
-            if (Btn(new Rect(right.x + 14 + third, by, third, bh), touchMode ? "ホーム" : "ホーム[M]", Candy[4], 15) && t > 0.9f) { rouletteFrozen = -1f; GoHome(); }
+            if (Btn(new Rect(right.x + 6, by, third, bh), touchMode ? "もう一度" : "もう一度[R]", Candy[3], 15) && t > 0.9f) { rouletteFrozen = -1f; AfterRun(() => StartLevel(spec)); }
+            if (Btn(new Rect(right.x + 14 + third, by, third, bh), touchMode ? "ホーム" : "ホーム[M]", Candy[4], 15) && t > 0.9f) { rouletteFrozen = -1f; AfterRun(GoHome); }
             if (Btn(new Rect(right.x + 22 + 2 * third, by, third, bh), "シェア", Candy[1], 15) && t > 0.9f) { GUIUtility.systemCopyBuffer = ShareText(); toast = "結果をコピーしました"; toastT = 1.6f; }
         }
 
@@ -477,8 +503,8 @@ namespace ShibuyaRush
             if (failReason == "TIME UP" && !continueUsed && !spec.free)
             { if (Btn(new Rect(p.x + 20, y, bw, 56), "広告を見て +15秒 つづける", new Color(1f, .6f, .2f), 21) && stateT > 0.6f) ShowRewardedAd("+15秒でつづき", Continue); y += 60f; }
             else y += 4f;
-            if (Btn(new Rect(p.x + 20, y, bw, 52), touchMode ? "もう一度" : "もう一度 [R]", new Color(.25f, .78f, .38f), 22) && stateT > 0.6f) StartLevel(spec); y += 60f;
-            if (Btn(new Rect(p.x + 20, y, bw, 46), touchMode ? "ホーム" : "ホーム [M]", Candy[4], 19) && stateT > 0.6f) GoHome();
+            if (Btn(new Rect(p.x + 20, y, bw, 52), touchMode ? "もう一度" : "もう一度 [R]", new Color(.25f, .78f, .38f), 22) && stateT > 0.6f) AfterRun(() => StartLevel(spec)); y += 60f;
+            if (Btn(new Rect(p.x + 20, y, bw, 46), touchMode ? "ホーム" : "ホーム [M]", Candy[4], 19) && stateT > 0.6f) AfterRun(GoHome);
         }
 
         // ================== ポーズ ==================

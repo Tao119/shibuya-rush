@@ -42,9 +42,9 @@ namespace ShibuyaRush
         // 現在地のざっくりした呼び名(実際の位置関係に近い、ハチ公像を原点にした座標)
         static readonly (string name, float x, float z, float r)[] Zones =
         {
-            ("ハチ公前", 0f, 0f, 30f), ("スクランブル交差点", -8f, 48f, 55f), ("SHIBUYA109前", -158f, 60f, 55f), ("SHIBUYA TSUTAYA前", -30f, 85f, 35f),
-            ("渋谷駅", 20f, -120f, 85f), ("スクランブルスクエア", 134f, -71f, 50f), ("渋谷ヒカリエ", 302f, 10f, 55f), ("マークシティ", -181f, -89f, 60f),
-            ("渋谷ストリーム", 217f, -205f, 55f), ("メガドンキ", -250f, 157f, 50f), ("TSUTAYA東口", 115f, -217f, 40f),
+            ("ハチ公前", 0f, 0f, 30f), ("スクランブル交差点", -8f, 48f, 55f), ("SHIBUYA108前", -158f, 60f, 55f), ("SHIBUYA TSUDAYA前", -30f, 85f, 35f),
+            ("渋谷駅", 20f, -120f, 85f), ("スクランブラースクエア", 134f, -71f, 50f), ("渋谷ヒカルエ", 302f, 10f, 55f), ("マークシチー", -181f, -89f, 60f),
+            ("渋谷ストリーミ", 217f, -205f, 55f), ("メガドンコ", -250f, 157f, 50f), ("TSUDAYA東口", 115f, -217f, 40f),
         };
 
         /// <summary>プレイヤーの現在地の呼び名。名所の近く、なければ最寄りの通り、なければ駅周辺。lift&gt;2なら「2F」を付ける。</summary>
@@ -135,7 +135,7 @@ namespace ShibuyaRush
             // 特別ルール(序盤は無し。ボスは単独)
             sp.mod = n <= 2 || sp.boss ? 0 : (n % 7 == 4 ? 3 : n % 3 == 2 ? 1 : n % 5 == 3 ? 2 : 0);
             sp.modText = ModNames[sp.mod];
-            float v = Mathf.Lerp(3.2f, 4.5f, Mathf.Clamp01(n / 40f)) * (sp.mod == 2 ? 1.2f : 1f);
+            float v = Mathf.Lerp(2.7f, 3.5f, Mathf.Clamp01(n / 40f)) * (sp.mod == 2 ? 1.15f : 1f);   // スキルなしのボットで測った平均(約2.7 m/s)を、序盤の基準にしてある
             sp.limit = Mathf.Ceil(sp.pathLen / v / 5f) * 5f + 15f;
             sp.par3 = Mathf.Round(sp.pathLen / 8.5f); sp.par2 = Mathf.Round(sp.pathLen / 5.4f);
             sp.limit = Mathf.Max(sp.limit, sp.par2 + 25f);

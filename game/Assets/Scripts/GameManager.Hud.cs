@@ -138,7 +138,8 @@ namespace ShibuyaRush
         // ---------------- OnGUI ----------------
         void OnGUI()
         {
-            if (data == null) return; if (Event.current.type == EventType.Layout) return;   // 配置用のイベントでは描かない(描画を半分にして、スマホの負荷を下げる)
+            if (Event.current.type == EventType.Layout) return;
+            if (!ready) { DrawLoading(); return; }   // 配置用のイベントでは描かない(描画を半分にして、スマホの負荷を下げる)
             InitStyles(); ComputeLayout();
             GUI.matrix = Matrix4x4.Scale(new Vector3(L.S, L.S, 1)); float W = L.W, H = L.H;
             PreUI();

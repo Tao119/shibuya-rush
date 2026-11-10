@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace ShibuyaRush
 {
-    public enum UiPanel { None, Shop, Missions, Settings, Free }
+    public enum UiPanel { None, Shop, Missions, Settings, Free, Credits }
 
     /// <summary>ゲームの進行(レベル開始・クリア・失敗・報酬・アップグレード・ミッション)。画面の描画は GameManager.Screens.cs。</summary>
     public partial class GameManager
@@ -147,10 +147,12 @@ namespace ShibuyaRush
             magnetBase = u[4] > 0 ? 1.8f + Meta.Upgrades[4].step * u[4] : 0f;
         }
 
+        Material xrayMat;
         void RebuildPlayerRenderer()
         {
             var sk = Meta.Skins[Mathf.Clamp(Store.D.skin, 0, Meta.Skins.Length - 1)];
             playerHr = new HumanoidRenderer(new[] { Cosmetics.Flat(sk.shirt) }, Cosmetics.Flat(sk.pants), M("Skin"));
+            var xs = Shader.Find("ShibuyaRush/XRay"); if (xs != null) { if (xrayMat == null) xrayMat = new Material(xs) { enableInstancing = true }; xrayMat.SetColor("_Color", new Color(1f, .62f, .15f, .65f)); playerHr.XRay = xrayMat; }   // 建物・床・柱の裏でも見える
         }
 
         // ===================== アイテム =====================
@@ -318,7 +320,23 @@ namespace ShibuyaRush
         void OnApplicationPause(bool paused) { if (paused && state == GameState.Playing && !autoplay) Pause(); }
 
         // ===================== ダミー広告(本番ではAdMob等のSDKに差し替える) =====================
-        void ShowRewardedAd(string label, Action reward) { if (adT > 0f) return; adCallback = reward; adLabel = label; adT = AdSeconds; }
+        void ShowRewardedAd(string label, Action reward)
+        {
+            if (adT > 0f) return;
+            Action onReward = () => { Ads.LastRewarded = Time.realtimeSinceStartup; Store.D.rewardedViews++; Store.Commit(); reward?.Invoke(); };
+            if (Ads.Real != null && Ads.Real.RewardedReady) { Ads.Real.ShowRewarded(onReward, () => { toast = "広告を読み込めませんでした"; toastT = 1.6f; }); return; }
+            adCallback = onReward; adLabel = label; adT = AdSeconds;   // 開発用ダミー
+        }
+
+        /// <summary>挑戦のあとの全画面広告(出してよい条件のときだけ)。出し終えてから next を実行する。</summary>
+        void AfterRun(Action next)
+        {
+            Ads.RunsSinceInterstitial++;
+            if (autoplay || !Ads.InterstitialDue()) { next(); return; }
+            Ads.LastInterstitial = Time.realtimeSinceStartup; Ads.RunsSinceInterstitial = 0; Store.D.interstitialViews++;
+            if (Ads.Real != null && Ads.Real.InterstitialReady) { Ads.Real.ShowInterstitial(next); return; }
+            adCallback = next; adLabel = "(全画面広告のダミー)"; adT = 1.5f;
+        }
 
         // ===================== ショップ =====================
         bool Buy(int cost) { if (Store.D.coins < cost) { fx.PlayBump(); toast = "コインが足りません"; toastT = 1.4f; return false; } Store.D.coins -= cost; fx.PlayCash(); return true; }

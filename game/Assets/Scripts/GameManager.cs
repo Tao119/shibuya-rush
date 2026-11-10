@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -16,7 +17,7 @@ namespace ShibuyaRush
         HumanoidRenderer crowdHr, playerHr; Camera cam, miniCam; RenderTexture miniRt;
         GameState state = GameState.Menu; float stateT, raceT;
         int poiIndex; Vector2 goal; float goalLift; string goalName = ""; GameObject beam;
-        float camYaw; int crowdCount = 22000; float hb;
+        float camYaw; int crowdCount = 14000; float hb;
         SkillFx fx; GameObject arrow3d; Texture2D arrowTex, vigTex; Material arrowMat;
         readonly InputHub input = new InputHub(); bool touchMode, crowdArg, carsArg;
         // Bot / 計測
@@ -55,7 +56,7 @@ namespace ShibuyaRush
             if (Application.isMobilePlatform) touchMode = true;
             if (touchMode)
             {   // スマホ向けの軽量設定(人と車を減らし、描画距離と影を絞る)
-                if (!crowdArg) crowdCount = 5000; if (!carsArg) carCount = 150;
+                if (!crowdArg) crowdCount = 6000; if (!carsArg) carCount = 150;
                 Screen.orientation = ScreenOrientation.AutoRotation; Screen.autorotateToPortrait = Screen.autorotateToLandscapeLeft = Screen.autorotateToLandscapeRight = true; Screen.autorotateToPortraitUpsideDown = false;
                 Screen.sleepTimeout = SleepTimeout.NeverSleep;
             }
@@ -63,10 +64,15 @@ namespace ShibuyaRush
             cam = Camera.main;
         }
 
-        void Start()
+        bool ready; float bootP; string bootMsg = "読み込み中";
+        object Boot(float p, string msg) { bootP = p; bootMsg = msg; return null; }   // 1フレーム休んで進み具合を描く(長く固まって見えず、OSに止められないように)
+
+        IEnumerator Start()
         {
+            yield return Boot(0.02f, "準備中");
             Heightfield.Load();
-            data = CityData.Load();
+            data = CityData.Load(); Names.Apply(data);   // 企業名・商業施設名はパロディ名にする
+            yield return Boot(0.10f, "街のデータを読み込み中");
             // 道が通っている建物は、道のほうを優先して取り除く(壁に見えて通れる場所をなくす)
             { var probe = new CityBuilder(); probe.RegisterOnly(data); var g0 = new PedGraph(data); var g1 = new PedGraph(data, true); var hitCount = new Dictionary<int, int>();
               foreach (var gg in new[] { g0, g1 })
@@ -81,34 +87,41 @@ namespace ShibuyaRush
             city = new CityBuilder(); city.Hidden = hidden;
             var pal = new Material[CityBuilder.PaletteSize];
             for (int i = 0; i < pal.Length; i++) pal[i] = M("Bld" + i);
+            yield return Boot(0.22f, "建物を建てています");
             city.Build(data, M("Ground"), M("Road"), M("Walkway"), pal, M("Marking"));
+            yield return Boot(0.45f, "道をつないでいます");
             graph = new PedGraph(data);
             city.Exempt = null;   // 例外は設けない: 壁は高さで判定する(高架の上は屋根より高ければ通れる)
             int pruned = graph.Prune(city.InsideBuilding, false);
             // 崖や急な斜面(傾き0.75以上)は、建物と同じく歩けない場所として扱う
             System.Func<float, float, bool> wall5 = (x, z) => city.Blocked(x, z, 0.5f) || Heightfield.Current.Slope(x, z) > 0.75f, wall4 = (x, z) => city.Blocked(x, z, 0.4f) || Heightfield.Current.Slope(x, z) > 0.75f;
+            int plazaEdges = graph.AddAreas(data.areas, 5f, wall4); Debug.Log($"[Graph] plaza/park lattice edges added={plazaEdges}");
             graph.ComputeFree(wall5);
             int healed = graph.Heal(9f, wall4); Debug.Log($"[Graph] gap-healing edges added={healed}"); var swH = System.Diagnostics.Stopwatch.StartNew(); if (healed > 0) graph.ComputeFree(wall5);
             int healedR = graph.HealRoutes(30f, wall4); graph.ComputeFree(wall5); Debug.Log($"[Graph] route-only shortcuts added={healedR} ({swH.ElapsedMilliseconds}ms)");
             city.MakeWalkable(graph, M("Walkway")); city.MakeStairs(graph, M("Walkway"));
             var lm = new List<Vector2>(); foreach (var q in data.pois) lm.Add(new Vector2(q.x, q.z));
             lm.Add(Vector2.zero);
+            yield return Boot(0.62f, "人の流れを作っています");
             graph.BuildHubs(300, 7, lm);
+            yield return Boot(0.72f, "人を集めています");
             var tints = new Material[10]; for (int i = 0; i < tints.Length; i++) tints[i] = M("Tint" + i);
             crowdHr = new HumanoidRenderer(tints, M("Pants"), M("Skin"));
             playerHr = new HumanoidRenderer(new[] { M("PlayerTint") }, M("PlayerPants"), M("Skin"));
             crowd = new Crowd(graph, crowdHr, crowdCount, 12345, (x, z) => city.Blocked(x, z, 0.5f));
             if (touchMode) ApplyMobileProfile();
             crowd.Solid = (x, z) => city.SolidPush(x, z, 0.3f); crowd.InBuilding = city.InsideBuilding;
+            yield return Boot(0.84f, "街の小物を置いています");
             props = new Props(data, city, graph, city.Root.transform, touchMode); if (touchMode) props.DrawDist = 80f;
             carGraph = new PedGraph(data, true); int prunedCar = carGraph.Prune(city.InsideBuilding, false); Debug.Log($"[Graph] pruned walk={pruned} car={prunedCar}"); carGraph.BuildHubs(Mathf.Min(150, Mathf.Max(2, carGraph.MainCount / 4)), 11, new List<Vector2>());
             var carMats = new Material[6]; for (int i = 0; i < carMats.Length; i++) carMats[i] = M("Car" + i);
             traffic = new Traffic(carGraph, graph, crowd, carCount, carMats, M("CarCabin"));
+            yield return Boot(0.92f, "もうすぐ始まります");
             player = new Player(city, crowd, graph, Vector2.zero) { yaw = 0 };
             fx = new SkillFx(this, cam, M("FxAdd"), new[] { M("GhostA"), M("GhostB"), M("GhostC") }, M("Skin"), touchMode);   // スマホは重いポストエフェクトを切る
             Store.NoPersist = noPersist || autoplay; if (resetSave) Store.Reset();
             if (giveCoins > 0) { Store.D.coins += giveCoins; Store.Commit(); }
-            fx.SetAudio(Store.D.music, Store.D.sfx);
+            fx.SetAudio(Store.D.music, Store.D.sfx); Ads.Init();
             levels = new LevelGen(graph, data, city); pickups = new Pickups(); pickups.OnPick = OnPick; ghost = new Ghost(); cosm = new Cosmetics(transform, M("FxAdd"));
             rivalHr = new HumanoidRenderer(new[] { Cosmetics.Flat(new Color(.55f, .3f, 1f)) }, Cosmetics.Flat(new Color(.12f, .1f, .25f)), M("Skin"));
             RebuildPlayerRenderer(); ApplyUpgrades(); Store.EnsureMissions();
@@ -138,6 +151,7 @@ namespace ShibuyaRush
             if (shotDir != null) Directory.CreateDirectory(shotDir);
             if (selfTest) { RunLevelTests(); RunRouteOptimalityTest(); }
             crowd.Recenter(Vector2.zero, 0f);
+            ready = true; bootP = 1f;
             if (autoplay) StartLevel(poiIndex >= 0 ? levels.MakeFree(poiIndex) : levels.Make(levelArg));
             else
             {
@@ -250,6 +264,7 @@ namespace ShibuyaRush
 
         void Update()
         {
+            if (!ready) return;
             float dt = Mathf.Min(Time.deltaTime, 0.05f), rdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             bool frozen = state == GameState.Paused; if (frozen) { dt = 0f; rdt = 0f; }
             ComputeLayout(); input.uiScale = L.S; input.playing = state == GameState.Playing && !autoplay;

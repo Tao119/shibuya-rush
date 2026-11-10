@@ -178,7 +178,7 @@ namespace ShibuyaRush
             var card = po ? new Rect(W / 2 - cw / 2, ny - 14f - chh, cw, chh) : new Rect(L.x0 + m + 6f, (L.y0 + L.y1) / 2f - chh / 2f + 30f, cw, chh);
             Panel(card, new Color(.14f, .12f, .34f, .9f), 5f);
             Label(new Rect(card.x + 14, card.y + 6, card.width - 28, 34), homeSpec.title, St(26, TextAnchor.MiddleLeft), homeSpec.boss ? new Color(.8f, .65f, 1f) : Color.white);
-            Label(new Rect(card.x + 14, card.y + 40, card.width - 28, 28), homeSpec.startName + "  ▶  " + homeSpec.goalName, St(17, TextAnchor.MiddleLeft), new Color(1f, .9f, .4f));
+            Label(new Rect(card.x + 14, card.y + 40, card.width - 28, 28), homeSpec.startName + "  ▶  " + homeSpec.goalName, St(19, TextAnchor.MiddleLeft), new Color(1f, .95f, .6f));
             Label(new Rect(card.x + 14, card.y + 68, card.width - 28, 26), $"約{homeSpec.pathLen:F0}m   制限 {homeSpec.limit:F0}秒   ★3は {homeSpec.par3:F0}秒以内", St(15, TextAnchor.MiddleLeft), new Color(1, 1, 1, .9f));
             float best = Store.BestTime(homeSpec.key); int bs = Store.BestStars(homeSpec.key);
             string line = best < 9000f ? $"BEST {best:F1}秒  " + new string('★', bs) + new string('☆', 3 - bs) : "まだクリアしていません";
@@ -424,6 +424,7 @@ namespace ShibuyaRush
                 Label(new Rect(pv.x - 46, pv.y - 42, 92, 84), on ? "★" : "☆", new GUIStyle(huge) { fontSize = two ? 70 : 78 }, on ? new Color(1f, .88f, .2f) : new Color(1, 1, 1, 0.4f)); GUI.matrix = mat2;
             }
             string badge = res.newBest ? "NEW BEST!" : (res.levelUp ? "LEVEL UP!  次は LEVEL " + Store.D.level : ""); if (badge != "" && t > 1.8f) Label(new Rect(left.x, left.y + 238, left.width, 30), badge, St(21), new Color(.5f, 1f, .6f));
+            if (res.hadBest && t > 1.8f) Label(new Rect(left.x, left.y + 214 + (two ? 30 : 56), left.width, 24), res.diff <= 0 ? $"前回ベストより {-res.diff:F1}秒 はやい!" : $"前回ベストまで あと {res.diff:F1}秒", St(14), res.diff <= 0 ? new Color(.5f, 1f, .6f) : new Color(1f, .85f, .6f));
             if (res.note != "" && t > 1.8f) Label(new Rect(left.x, left.y + 262, left.width, 28), res.note, St(14), new Color(1f, .8f, .6f));
             // 右(下): 報酬の内訳・ルーレット・ボタン
             float y = right.y; float a = Mathf.Clamp01((t - 1.2f) / 0.5f); var old = GUI.color; GUI.color = new Color(1, 1, 1, a);
@@ -462,12 +463,13 @@ namespace ShibuyaRush
         // ================== しっぱい ==================
         void DrawFail(float W, float H)
         {
-            float cw = Mathf.Min(W - 20f, 460f), chh = 360f; var p = new Rect(W / 2 - cw / 2, (L.y0 + L.y1) / 2f - chh / 2f, cw, chh); Panel(p, new Color(.26f, .16f, .34f, .97f), 8f);
+            float cw = Mathf.Min(W - 20f, 460f), chh = 400f; var p = new Rect(W / 2 - cw / 2, (L.y0 + L.y1) / 2f - chh / 2f, cw, chh); Panel(p, new Color(.26f, .16f, .34f, .97f), 8f);
             float k = 1f + 0.4f * Mathf.Exp(-stateT * 8f); var mat = GUI.matrix; GUIUtility.ScaleAroundPivot(new Vector2(k, k), new Vector2(p.center.x, p.y + 50));
             Label(new Rect(p.x, p.y + 12, p.width, 80), failReason == "TIME UP" ? "TIME UP" : "ざんねん!", new GUIStyle(huge) { fontSize = 60 }, new Color(1f, .45f, .5f)); GUI.matrix = mat;
             Label(new Rect(p.x, p.y + 92, p.width, 30), failReason == "NO DAMAGE" ? "ノーダメージ条件がくずれました" : $"ゴールまで あと {(player.pos - goal).magnitude:F0} m", St(20), Color.white);
-            CoinIcon(new Rect(p.center.x - 70, p.y + 130, 30, 30)); Label(new Rect(p.center.x - 34, p.y + 128, 130, 34), "+" + Fmt(res.total), St(26, TextAnchor.MiddleLeft), new Color(1f, .92f, .4f));
-            float y = p.y + 176f; float bw = p.width - 40f;
+            { float prog = Mathf.Clamp01(1f - (player.pos - goal).magnitude / Mathf.Max(goalDist, 1f)); var tb = new Rect(p.x + 30, p.y + 126, p.width - 60, 12); Bar(tb, new Color(0, 0, 0, .45f)); Bar(new Rect(tb.x, tb.y, tb.width * prog, tb.height), prog > .85f ? new Color(1f, .85f, .2f) : new Color(.5f, .8f, 1f)); if ((player.pos - goal).magnitude < 40f) Label(new Rect(p.x, p.y + 140, p.width, 24), "あと少し!", St(16), new Color(1f, .9f, .3f)); }
+            CoinIcon(new Rect(p.center.x - 70, p.y + 160, 30, 30)); Label(new Rect(p.center.x - 34, p.y + 158, 130, 34), "+" + Fmt(res.total), St(26, TextAnchor.MiddleLeft), new Color(1f, .92f, .4f));
+            float y = p.y + 202f; float bw = p.width - 40f;
             if (failReason == "TIME UP" && !continueUsed && !spec.free)
             { if (Btn(new Rect(p.x + 20, y, bw, 56), "広告を見て +15秒 つづける", new Color(1f, .6f, .2f), 21) && stateT > 0.6f) ShowRewardedAd("+15秒でつづき", Continue); y += 60f; }
             else y += 4f;

@@ -24,6 +24,9 @@ namespace ShibuyaRush
         public int Waiting { get; private set; }               // 赤信号で待っている人数
         public int Trips { get; private set; }               // 目的地に着いた回数(動作確認用)
         public float NearDist = 55f, FarDist = 230f;
+        /// <summary>人はプレイヤーの周囲この半径の中だけにいる。外に出た人は、半径の内側(外寄り)の道に出し直す。</summary>
+        public float ActiveRadius = 180f; public bool Stream = true;
+        int[] cand; float[] candCum; Vector2[] candMid;
 
         public Crowd(PedGraph graph, HumanoidRenderer renderer, int count, int seed)
         {
@@ -34,9 +37,11 @@ namespace ShibuyaRush
             {
                 if (!g.inMain[g.edges[i].a] || g.edges[i].width <= 0f) continue;
                 float dc = g.nodes[g.edges[i].a].magnitude;   // 中心(ハチ公前)付近ほど混む
-                tot += g.edges[i].len * Mathf.Min(g.edges[i].width, 14f) * (0.35f + 2.5f * Mathf.Exp(-dc / 260f));
+                tot += g.edges[i].len * Mathf.Min(g.edges[i].width, 14f) * (0.5f + 1.2f * Mathf.Exp(-dc / 260f));
                 cum.Add(tot); ids.Add(i);
             }
+            cand = ids.ToArray(); candCum = cum.ToArray(); candMid = new Vector2[cand.Length];
+            for (int k = 0; k < cand.Length; k++) { var ee = g.edges[cand[k]]; candMid[k] = (g.nodes[ee.a] + g.nodes[ee.b]) * 0.5f; }
             for (int i = 0; i < count; i++)
             {
                 float r = (float)rng.NextDouble() * tot; int lo = 0, hi = cum.Count - 1;
@@ -51,6 +56,26 @@ namespace ShibuyaRush
                 a[i].pos = Target(i);
             }
         }
+
+        /// <summary>人iを、プレイヤーから [0.55R, R] の輪の中にある道へ置き直す。</summary>
+        void Respawn(int i, Vector2 p)
+        {
+            int best = -1; float bestScore = float.MaxValue; float tot = candCum[candCum.Length - 1];
+            for (int tr = 0; tr < 20; tr++)
+            {
+                float r = (float)rng.NextDouble() * tot; int lo = 0, hi = candCum.Length - 1;
+                while (lo < hi) { int mid = (lo + hi) / 2; if (candCum[mid] < r) lo = mid + 1; else hi = mid; }
+                float d = (candMid[lo] - p).magnitude; float score = d < ActiveRadius * 0.55f ? ActiveRadius * 0.55f - d : d > ActiveRadius ? d - ActiveRadius : 0f;
+                if (score < bestScore) { bestScore = score; best = lo; if (score <= 0f) break; }
+            }
+            int eid = cand[best]; var e = g.edges[eid]; bool fwd = rng.NextDouble() < 0.5; ref var ag = ref a[i];
+            ag.edge = eid; ag.toNode = fwd ? e.b : e.a; ag.t = (float)rng.NextDouble() * e.len; ag.pending = -1; ag.hub = rng.Next(g.hubNodes.Length);
+            ag.lateral = Lane(e); ag.off = Vector2.zero; ag.vel = Vector2.zero; ag.air = 0f; ag.airV = 0f; ag.spin = 0f; ag.pos = Target(i);
+            float fr = Mathf.Clamp01(ag.t / Mathf.Max(e.len, 0.01f)); ag.lift = ag.toNode == e.b ? Mathf.Lerp(e.lA, e.lB, fr) : Mathf.Lerp(e.lB, e.lA, fr);
+        }
+
+        /// <summary>プレイヤーが飛んだとき(レベル開始など): 半径の外にいる人を一度に出し直す。</summary>
+        public void Recenter(Vector2 p) { for (int i = 0; i < a.Length; i++) if ((a[i].pos - p).sqrMagnitude > ActiveRadius * ActiveRadius) Respawn(i, p); }
 
         float Lane(PedGraph.Edge e) => e.car ? SideLane(e, rng.NextDouble() < 0.5 ? 1f : -1f) : Wide(e.width);
 
@@ -123,12 +148,13 @@ namespace ShibuyaRush
         int frame;
         public void Step(float dtFrame, Vector2 player, bool playerSolid, float playerLift = 0f)
         {
-            Rebuild(); Clock += dtFrame; int waiting = 0; frame++;
+            Rebuild(); Clock += dtFrame; int waiting = 0; frame++; float outR2 = ActiveRadius * ActiveRadius * 1.21f; int budget = 800;
             for (int i = 0; i < a.Length; i++)
             {
                 ref var ag = ref a[i];
+                if (Stream && (ag.pos - player).sqrMagnitude > outR2 && budget > 0 && ag.air <= 0.01f) { Respawn(i, player); budget--; continue; }
                 float dt = dtFrame;
-                if ((ag.pos - player).sqrMagnitude > 160f * 160f)   // 遠くの人は3フレームに1回だけ動かす(負荷対策)
+                if ((ag.pos - player).sqrMagnitude > 130f * 130f)   // 遠くの人は3フレームに1回だけ動かす(負荷対策)
                 {
                     if ((i + frame) % 3 != 0) { if (ag.pending >= 0) waiting++; continue; }
                     dt = dtFrame * 3f;

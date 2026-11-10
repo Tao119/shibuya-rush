@@ -22,15 +22,15 @@ namespace ShibuyaRush
     /// </summary>
     public class LevelGen
     {
-        readonly PedGraph g; readonly CityData data; readonly List<int> ground = new List<int>();
+        readonly PedGraph g; readonly CityData data; readonly CityBuilder city; readonly List<int> ground = new List<int>();
         readonly List<(string name, Vector2 p)> roadNames = new List<(string, Vector2)>();
         public static readonly Vector2 Hachiko = new Vector2(3.6f, -3.2f);
         public static readonly string[] ModNames = { "", "コイン2倍!", "時間きびしめ", "ノーダメージ" };
         static readonly string[] BossNames = { "ケンタ", "ミサキ", "ダイキ", "レイナ", "ソウタ", "ユイ" };
 
-        public LevelGen(PedGraph graph, CityData city)
+        public LevelGen(PedGraph graph, CityData cityData, CityBuilder cb)
         {
-            g = graph; data = city;
+            g = graph; data = cityData; city = cb;
             for (int i = 0; i < g.nodes.Count; i++) if (g.inMain[i] && g.nodeLift[i] < 0.5f) ground.Add(i);
             foreach (var r in data.roads)
             {
@@ -50,6 +50,31 @@ namespace ShibuyaRush
             return "渋谷のまちなか";
         }
 
+        /// <summary>経路を2mおきに調べ、建物の壁に当たる点がないか。ゴールの周りも空いているか。</summary>
+        public bool Walkable(List<Vector2> r)
+        {
+            if (r == null || r.Count < 2) return false;
+            for (int i = 1; i < r.Count; i++)
+            {
+                var a = r[i - 1]; var b = r[i]; float l = (b - a).magnitude;
+                for (float s = 0; s <= l; s += 2f) { var p = a + (b - a) * (l > 1e-3f ? s / l : 0f); if (city.Blocked(p.x, p.y)) return false; }
+            }
+            var e = r[r.Count - 1]; return !city.Blocked(e.x, e.y);
+        }
+
+        /// <summary>目標の近くで、歩いてたどり着けるゴール(と経路)を探す。近いノードから順に試す。</summary>
+        bool FindReachable(Vector2 start, Vector2 target, out Vector2 goal, out List<Vector2> route)
+        {
+            var order = new List<(float d, int n)>();
+            for (int k = 0; k < ground.Count; k++) { float d = (g.nodes[ground[k]] - target).sqrMagnitude; if (d < 80f * 80f) order.Add((d, ground[k])); }
+            order.Sort((x, y) => x.d.CompareTo(y.d));
+            for (int k = 0; k < Mathf.Min(order.Count, 30); k++)
+            {
+                var c = g.nodes[order[k].n]; var r = g.Path(start, c); if (Walkable(r)) { goal = c; route = r; return true; }
+            }
+            goal = target; route = null; return false;
+        }
+
         /// <summary>経路の長さ[m]。</summary>
         public static float Length(List<Vector2> r) { float s = 0; for (int i = 1; i < r.Count; i++) s += (r[i] - r[i - 1]).magnitude; return s; }
 
@@ -63,20 +88,22 @@ namespace ShibuyaRush
             Vector2 start = Hachiko;
             if (n > 3 && n % 3 == 0) { var q = data.pois[rng.Next(data.pois.Length)]; start = g.nodes[g.NearestNode(new Vector2(q.x, q.z), 0.5f)]; }
             else if (n > 6 && n % 4 == 1) start = g.nodes[ground[rng.Next(ground.Count)]];
+            if (city.Blocked(start.x, start.y)) start = Hachiko;
             sp.start = start;
             float dMin = Mathf.Min(110f + n * 9f, 300f), dMax = Mathf.Min(190f + n * 14f, 520f);
             List<Vector2> route = null; Vector2 goal = start;
-            if (fixedGoal.HasValue) { goal = fixedGoal.Value; route = g.Path(start, goal); }
+            if (fixedGoal.HasValue) { if (!FindReachable(start, fixedGoal.Value, out goal, out route)) { goal = fixedGoal.Value; route = g.Path(start, goal); } }
             else
             {
                 for (int tries = 0; tries < 60; tries++)
                 {
                     var c = g.nodes[ground[rng.Next(ground.Count)]]; float d = (c - start).magnitude;
                     if (d < dMin || d > dMax) continue;
-                    var r = g.Path(start, c); if (r.Count < 2) continue;
+                    var r = g.Path(start, c); if (r.Count < 2 || !Walkable(r)) continue;
                     float len = Length(r); if (len > d * 1.7f + 40f) continue;
                     route = r; goal = c; break;
                 }
+                if (route == null) { for (int k = 0; k < data.pois.Length && route == null; k++) { var q = data.pois[(n + k) % data.pois.Length]; if (!FindReachable(start, new Vector2(q.x, q.z), out goal, out route)) route = null; } }
                 if (route == null) { var q = data.pois[n % data.pois.Length]; goal = new Vector2(q.x, q.z); route = g.Path(start, goal); }
             }
             int gn = g.NearestNode(goal, 0.5f); sp.goal = g.nodes[gn]; sp.goalLift = g.nodeLift[gn];
@@ -99,8 +126,9 @@ namespace ShibuyaRush
         public LevelSpec MakeFree(int poiIndex)
         {
             var q = data.pois[poiIndex]; var sp = new LevelSpec { number = 0, key = "free" + q.id, free = true, seed = poiIndex + 99, start = Hachiko, title = "フリー: " + q.name };
-            int gn = g.NearestNode(new Vector2(q.x, q.z), 0.5f); sp.goal = g.nodes[gn]; sp.goalLift = g.nodeLift[gn];
-            sp.route = g.Path(Hachiko, sp.goal); if (sp.route.Count < 2) sp.route = new List<Vector2> { Hachiko, sp.goal };
+            var tq = new Vector2(q.x, q.z); List<Vector2> fr; if (!FindReachable(Hachiko, tq, out var fg, out fr)) { fg = tq; fr = g.Path(Hachiko, tq); }
+            int gn = g.NearestNode(fg, 0.5f); sp.goal = g.nodes[gn]; sp.goalLift = g.nodeLift[gn];
+            sp.route = fr; if (sp.route.Count < 2) sp.route = new List<Vector2> { Hachiko, sp.goal };
             sp.pathLen = Mathf.Max(60f, Length(sp.route)); sp.goalName = q.name; sp.startName = "ハチ公前"; sp.limit = 9999f;
             sp.par3 = Mathf.Round(sp.pathLen / 8.5f); sp.par2 = Mathf.Round(sp.pathLen / 5.4f);
             return sp;

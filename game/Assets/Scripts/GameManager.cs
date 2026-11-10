@@ -16,14 +16,14 @@ namespace ShibuyaRush
         HumanoidRenderer crowdHr, playerHr; Camera cam, miniCam; RenderTexture miniRt;
         GameState state = GameState.Menu; float stateT, raceT;
         int poiIndex; Vector2 goal; float goalLift; string goalName = ""; GameObject beam;
-        float camYaw; int crowdCount = 50000; float hb;
+        float camYaw; int crowdCount = 22000; float hb;
         SkillFx fx; GameObject arrow3d; Texture2D arrowTex, vigTex; Material arrowMat;
         readonly InputHub input = new InputHub(); bool touchMode, crowdArg, carsArg;
         // Bot / 計測
         bool autoplay, noSkills, selfTest, resetSave, noPersist, demoWin, demoFail; string panelArg = ""; int levelArg; bool fxTest, menuShot, finShot2, fakeJoy; float menuQuitAt; bool f1, f2, f3; float shotAt; string shotTag; Vector2 startPos = new Vector2(3.6f, -3.2f); float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT; bool stuckLogged;
         readonly List<float> frameMs = new List<float>(); float nextShot; int shotNo; string resultNote = "";
 
-        int giveCoins;
+        int giveCoins; HashSet<int> hidden = new HashSet<int>();
         Material M(string n) => Resources.Load<Material>("Mats/" + n);
 
         void Awake()
@@ -55,7 +55,7 @@ namespace ShibuyaRush
             if (Application.isMobilePlatform) touchMode = true;
             if (touchMode)
             {   // スマホ向けの軽量設定(人と車を減らし、描画距離と影を絞る)
-                if (!crowdArg) crowdCount = 6000; if (!carsArg) carCount = 150;
+                if (!crowdArg) crowdCount = 5000; if (!carsArg) carCount = 150;
                 Screen.orientation = ScreenOrientation.AutoRotation; Screen.autorotateToPortrait = Screen.autorotateToLandscapeLeft = Screen.autorotateToLandscapeRight = true; Screen.autorotateToPortraitUpsideDown = false;
                 Screen.sleepTimeout = SleepTimeout.NeverSleep;
             }
@@ -67,13 +67,23 @@ namespace ShibuyaRush
         {
             Heightfield.Load();
             data = CityData.Load();
-            city = new CityBuilder();
+            // 道が通っている建物は、道のほうを優先して取り除く(壁に見えて通れる場所をなくす)
+            { var probe = new CityBuilder(); probe.RegisterOnly(data); var g0 = new PedGraph(data); var g1 = new PedGraph(data, true); var hitCount = new Dictionary<int, int>();
+              foreach (var gg in new[] { g0, g1 })
+                  foreach (var e in gg.edges)
+                  {
+                      if (e.width <= 0f || e.lA > 0.05f || e.lB > 0.05f || !gg.inMain[e.a]) continue; var a0 = gg.nodes[e.a];
+                      for (float t = 1.5f; t < e.len - 1.5f; t += 1.5f) { var p = a0 + e.dir * t; int bid = probe.BuildingAt(p.x, p.y); if (bid >= 0) hitCount[bid] = hitCount.TryGetValue(bid, out var c) ? c + 1 : 1; }
+                  }
+              hidden = new HashSet<int>(); float hh = 0f; foreach (var kv in hitCount) if (kv.Value >= 2) { hidden.Add(kv.Key); hh += data.buildings[kv.Key].h; }
+              Debug.Log($"[Graph] buildings hidden (road passes through)={hidden.Count} of {data.buildings.Length} avgH={(hidden.Count > 0 ? hh / hidden.Count : 0):F1}"); }
+            city = new CityBuilder(); city.Hidden = hidden;
             var pal = new Material[CityBuilder.PaletteSize];
             for (int i = 0; i < pal.Length; i++) pal[i] = M("Bld" + i);
             city.Build(data, M("Ground"), M("Road"), M("Walkway"), pal, M("Marking"));
             graph = new PedGraph(data);
             city.Exempt = graph.OnWalkway;
-            int pruned = graph.Prune(city.InsideBuilding, true);
+            int pruned = graph.Prune(city.InsideBuilding, false);
             var lm = new List<Vector2>(); foreach (var q in data.pois) lm.Add(new Vector2(q.x, q.z));
             lm.Add(Vector2.zero);
             graph.BuildHubs(300, 7, lm);
@@ -91,7 +101,7 @@ namespace ShibuyaRush
             Store.NoPersist = noPersist || autoplay; if (resetSave) Store.Reset();
             if (giveCoins > 0) { Store.D.coins += giveCoins; Store.Commit(); }
             fx.SetAudio(Store.D.music, Store.D.sfx);
-            levels = new LevelGen(graph, data); pickups = new Pickups(); pickups.OnPick = OnPick; ghost = new Ghost(); cosm = new Cosmetics(transform, M("FxAdd"));
+            levels = new LevelGen(graph, data, city); pickups = new Pickups(); pickups.OnPick = OnPick; ghost = new Ghost(); cosm = new Cosmetics(transform, M("FxAdd"));
             rivalHr = new HumanoidRenderer(new[] { Cosmetics.Flat(new Color(.55f, .3f, 1f)) }, Cosmetics.Flat(new Color(.12f, .1f, .25f)), M("Skin"));
             RebuildPlayerRenderer(); ApplyUpgrades(); Store.EnsureMissions();
             arrow3d = new GameObject("GoalArrow"); arrow3d.AddComponent<MeshFilter>().sharedMesh = ArrowMesh();
@@ -115,16 +125,18 @@ namespace ShibuyaRush
                 bool d2 = Traffic.Overlap(new Vector2(0, 2f), Vector2.zero, 180f, out var p4);   // 後ろ向きの車でも前後対称
                 Debug.Log($"[SelfTest] frontHit={a} push={p1} (期待 True, y>0) sideFar={b} (期待 False) sideNear={c2} push={p3} (期待 True, x>0) rev={d2} push={p4} (期待 True)");
             }
-            if (selfTest) RunCollisionTests();
+            if (selfTest) { crowd.Stream = false; RunCollisionTests(); crowd.Stream = true; }
             Debug.Log($"[Shibuya] roads={data.roads.Length} buildings={city.BuildingCount} nodes={graph.nodes.Count} main={graph.MainCount} edges={graph.edges.Count} hubs={graph.hubNodes.Length} crowd={crowd.Count} post={fx.PostOk} trees={props.TreeCount} lamps={props.LampCount} signals={props.SignalCount} neon={props.NeonCount}");
             if (shotDir != null) Directory.CreateDirectory(shotDir);
             if (selfTest) RunLevelTests();
+            crowd.Recenter(Vector2.zero);
             if (autoplay) StartLevel(poiIndex >= 0 ? levels.MakeFree(poiIndex) : levels.Make(levelArg));
             else
             {
                 homeSpec = levels.Make(Store.D.level); player.pos = homeSpec.start; player.lift = graph.nodeLift[graph.NearestNode(homeSpec.start)];
                 if (panelArg == "shop") panel = UiPanel.Shop; else if (panelArg == "missions") panel = UiPanel.Missions; else if (panelArg == "settings") panel = UiPanel.Settings; else if (panelArg == "free") panel = UiPanel.Free;
-                dailyPopup = (panelArg == "daily") || (panelArg == "" && Store.GiftReady && !menuShot);
+                dailyPopup = (panelArg == "daily") || (panelArg == "" && Store.GiftReady && !menuShot && Store.D.plays > 0);
+                if (Store.D.plays == 0 && panelArg == "" && !menuShot && !demoWin && !demoFail) StartLevel(homeSpec);   // 初回はメニューを見せず、すぐ走り出す
                 if (demoWin || demoFail) StartLevel(homeSpec);
             }
         }
@@ -168,7 +180,7 @@ namespace ShibuyaRush
         /// <summary>スマホ向け: 人と車の描画距離、影、解像度を絞る。</summary>
         void ApplyMobileProfile()
         {
-            crowd.NearDist = 28f; crowd.FarDist = 140f;
+            crowd.NearDist = 28f; crowd.FarDist = 120f; crowd.ActiveRadius = 120f;
             if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline is UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset urp)
             { urp.shadowDistance = 55f; urp.renderScale = 0.85f; urp.msaaSampleCount = 2; }
         }
@@ -204,6 +216,7 @@ namespace ShibuyaRush
             return to.normalized;
         }
 
+        Vector3 pw0() => new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
         int lastRemI = -1; bool demoShot;
 
         void Update()
@@ -242,6 +255,8 @@ namespace ShibuyaRush
                 pickups.Tick(dt, player.pos, player.lift, Mathf.Max(magnetBase, magnetT > 0f ? 8f : 0f));
                 ghost.Record(dt, player.pos, player.yaw, player.lift); ghostShown = ghost.Sample(raceT);
                 if (rival != null) rival.Tick(dt);
+                trickT -= rdt; if (trickT <= 0f) trickN = 0;
+                if (ghostShown && !ghostPassed && raceT > 3f && (player.pos - goal).magnitude < (ghost.pos - goal).magnitude - 3f) { ghostPassed = true; Pop("ゴーストを抜いた!", pw0() + Vector3.up * 3f, new Color(.8f, 1f, 1f), 1.4f); }
                 magnetT = Mathf.Max(0f, magnetT - dt); coinStreakT -= dt; if (coinStreakT <= 0f) coinStreak = 0; nearCd -= rdt; hintT += dt;
                 int remI = Mathf.CeilToInt(Remaining); if (!spec.free && remI != lastRemI && remI <= 5 && remI >= 1) fx.PlayReady(); lastRemI = remI;
                 if ((player.pos - goal).magnitude < GoalRadius && Mathf.Abs(player.lift - goalLift) < 2.5f) OnReachGoal();
@@ -277,13 +292,14 @@ namespace ShibuyaRush
 
             // 人混みはメニューでも動かす
             crowd.Step(dt, player.pos, !player.Slipping, player.lift);
+            UpdateRouteGuide(rdt);
             traffic.Step(dt);
             player.Tick(rdt, wish, dash, slip, shove);
             var pw = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
             var pdir = new Vector2(Mathf.Sin(player.yaw * Mathf.Deg2Rad), Mathf.Cos(player.yaw * Mathf.Deg2Rad));
-            if (player.evDash) { fx.OnDash(pw, pdir); player.evDash = false; }
-            if (player.evSlip) { fx.OnSlip(pw); player.evSlip = false; }
-            if (player.evShove) { fx.OnShove(pw, pdir); player.evShove = false; }
+            if (player.evDash) { fx.OnDash(pw, pdir); player.evDash = false; if (state == GameState.Playing) Trick(pw); }
+            if (player.evSlip) { fx.OnSlip(pw); player.evSlip = false; if (state == GameState.Playing) Trick(pw); }
+            if (player.evShove) { fx.OnShove(pw, pdir); player.evShove = false; if (state == GameState.Playing) Trick(pw); }
             if (player.evBump) { fx.OnBump(pw, player.bumpDir); player.evBump = false; player.evBump2 = true; }
             fx.Tick(rdt, player, pw, state == GameState.Playing);
             // コンボ: 突進・かき分けで人を弾き飛ばすたびに増え、途切れると終わる。25ごとに時計を1秒戻す
@@ -323,7 +339,7 @@ namespace ShibuyaRush
             UpdateCamera(rdt);
             UpdateArrow(); UpdateRings();
             crowd.Render(cam.transform.position, cam.transform.forward); traffic.Render(cam.transform.position); props.Render(cam.transform.position, crowd.Clock);
-            if (state != GameState.Menu) pickups.Render(cam.transform.position);
+            if (state != GameState.Menu) { pickups.Render(cam.transform.position); RenderRouteGuide(); }
             float lean = Mathf.Clamp(player.speedNow * 1.6f, 0, 18f);
             playerHr.Add(pw, player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.15f, lean, Mathf.Clamp(1f + sq + (player.dashT > 0 ? 0.1f : 0f), 0.6f, 1.4f));
             cosm.DrawHat(Store.D.hat, playerHr.LastHead);
@@ -376,6 +392,15 @@ namespace ShibuyaRush
             float y = camYaw * Mathf.Deg2Rad; var back = new Vector3(-Mathf.Sin(y), 0, -Mathf.Cos(y));
             float narrow = Screen.width < Screen.height ? 1.45f : 1f;   // 縦画面は横幅が狭いので、引いて高くする
             var want = shop ? p + back * 3.6f + Vector3.up * 1.7f : p + back * camBack * narrow + Vector3.up * camUp * (narrow > 1f ? 1.35f : 1f);
+            if (!shop && !city.InsideBuilding(player.pos.x, player.pos.y))
+            {   // カメラが建物の壁にめり込まないよう、プレイヤー側に寄せる
+                var head = p + Vector3.up * 1.5f; var dv = want - head;
+                for (int k = 1; k <= 12; k++)
+                {
+                    var q = head + dv * (k / 12f);
+                    if (city.InsideBuilding(q.x, q.z)) { float f = Mathf.Max(0.1f, (k - 1) / 12f - 0.04f); want = head + dv * f + Vector3.up * (1f - f) * 1.6f; break; }
+                }
+            }
             cam.transform.position = Vector3.Lerp(cam.transform.position, want, 1f - Exp14(dt)) + (fx != null ? fx.ShakeOffset : Vector3.zero);
             cam.fieldOfView = shop ? 40f : (Screen.width < Screen.height ? 76f : 62f) + Mathf.Min(8f, player.speedNow * 0.6f) + (fx != null ? fx.FovAdd : 0f);
             var look = shop ? p + Vector3.up * 1.0f : p + Vector3.up * 1.3f + new Vector3(Mathf.Sin(y), 0, Mathf.Cos(y)) * 2f;

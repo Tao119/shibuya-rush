@@ -96,9 +96,9 @@ namespace ShibuyaRush
             for (int id = 0; id < edges.Count; id++)
             {
                 var e = edges[id]; if (e.width <= 0f || e.lA > 0.05f || e.lB > 0.05f || (onlyCar && !e.car)) continue;
-                var a = nodes[e.a]; bool hit = false;
-                for (float t = 2f; t < e.len - 2f && !hit; t += 2f) { var p = a + e.dir * t; hit = insideBuilding(p.x, p.y); }
-                if (!hit) continue;
+                var a = nodes[e.a]; int inside = 0;
+                for (float t = 1.5f; t < e.len - 1.5f; t += 1.5f) { var p = a + e.dir * t; if (insideBuilding(p.x, p.y)) inside++; }
+                if (inside < 2 && !(e.len < 6f && inside >= 1)) continue;   // 建物の角をかすめる程度は残す
                 adj[e.a].Remove(id); adj[e.b].Remove(id); e.width = 0f; edges[id] = e; removed++;
             }
             if (removed > 0) { FindMainComponent(); edgeGrid.Clear(); BuildEdgeGrid(); }
@@ -177,7 +177,7 @@ namespace ShibuyaRush
                 float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f));
                 float d = (p - (a + ab * t)).magnitude;
                 bool deck = e.lA > 0.05f || e.lB > 0.05f;
-                if (deck ? d < Mathf.Max(e.width * 0.5f, 1.5f) + 0.5f : (!e.car && d < 1.6f)) return true;
+                if (deck && d < Mathf.Max(e.width * 0.5f, 1.5f) + 0.5f) return true;   // 地上の道は、壁の通り抜けを一切許さない
             }
             return false;
         }

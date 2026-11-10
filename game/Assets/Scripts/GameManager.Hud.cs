@@ -31,7 +31,7 @@ namespace ShibuyaRush
             var sa = Screen.safeArea; L.x0 = sa.xMin / L.S; L.x1 = sa.xMax / L.S; L.y0 = (Screen.height - sa.yMax) / L.S; L.y1 = (Screen.height - sa.yMin) / L.S;
             const float m = 12f; bool po = L.portrait;
             L.timer = new Rect(L.x0 + m, L.y0 + m, po ? 200 : 250, po ? 60 : 76);
-            L.chip = new Rect(L.x0 + m, L.timer.yMax + 8, po ? 240 : 300, 32);
+            L.chip = new Rect(L.x0 + m, L.timer.yMax + 8, po ? Mathf.Min(L.W - 2 * (L.x0 + m) - 130f, 300f) : 380, 44);
             float mm = touchMode ? (po ? 118 : 150) : 220; L.minimap = new Rect(L.x1 - m - mm, L.y0 + m, mm, mm);
             L.pause = new Rect(L.timer.xMax + 8, L.timer.y + 2, 60, 60); L.coinPill = new Rect(L.x0 + m, L.chip.yMax + 8, 150, 36);
             L.arrow = new Vector2(L.W / 2f, po ? L.y0 + m + Mathf.Max(mm, 110f) + 62f : L.y0 + 92f);
@@ -167,13 +167,16 @@ namespace ShibuyaRush
             var tc = urgent ? Color.Lerp(Color.white, new Color(1f, .3f, .3f), 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 12f)) : Color.white;
             Label(new Rect(r.x + 10, r.y, r.width - 18, r.height), (frozen ? "❚❚ " : "") + (lim ? $"{shownT:F1}" : $"{shownT:F2}"), new GUIStyle(huge) { fontSize = (int)(r.height * 0.66f), alignment = TextAnchor.MiddleLeft }, tc);
             Label(new Rect(r.xMax - 40, r.y + r.height * 0.42f, 36, r.height * 0.5f), lim ? "のこり" : "秒", new GUIStyle(small) { fontSize = lim ? 12 : 18 }, new Color(1, 1, 1, 0.85f));
-            Panel(L.chip, new Color(1f, .78f, .2f, .94f), 3f);
-            Label(new Rect(L.chip.x + 12, L.chip.y, L.chip.width - 20, L.chip.height), "▶ " + goalName, new GUIStyle(small) { fontSize = 16 }, new Color(.25f, .15f, .05f));
+            Panel(L.chip, new Color(.14f, .12f, .32f, .93f), 3f);
+            { int fs = 22; var gs = new GUIStyle(mid) { fontSize = fs, alignment = TextAnchor.MiddleLeft }; while (fs > 13 && gs.CalcSize(new GUIContent(goalName)).x > L.chip.width - 50f) { fs--; gs.fontSize = fs; }
+              Label(new Rect(L.chip.x + 10, L.chip.y, 30, L.chip.height), "▶", new GUIStyle(mid) { fontSize = 20, alignment = TextAnchor.MiddleLeft }, new Color(1f, .85f, .2f));
+              Label(new Rect(L.chip.x + 38, L.chip.y, L.chip.width - 44, L.chip.height), goalName, gs, Color.white); }
             // コインの数(取るたびにぽんと弾む)
             float cp = 1f + 0.35f * Mathf.Exp(-(Time.unscaledTime - coinPulse) * 10f); var pr = L.coinPill; var mt = GUI.matrix; GUIUtility.ScaleAroundPivot(new Vector2(cp, cp), pr.center);
             Panel(pr, new Color(.18f, .17f, .36f, .82f), 3f); CoinIcon(new Rect(pr.x + 6, pr.y + 5, 26, 26));
             Label(new Rect(pr.x + 38, pr.y, pr.width - 44, pr.height), Fmt(runCoins * (spec.mod == 1 ? 2 : 1)), new GUIStyle(mid) { fontSize = 22 }, new Color(1f, .9f, .35f)); GUI.matrix = mt;
             float py = pr.yMax + 6;
+            if (trickN >= 2) { Chip(new Rect(pr.x, py, 150, 28), "TRICK ×" + Mathf.Min(4, trickN), new Color(.9f, .4f, .75f)); py += 32; }
             if (magnetT > 0f) { Chip(new Rect(pr.x, py, 150, 28), $"マグネット {magnetT:F0}", Pickups.PuColor[0]); py += 32; }
             if (player.shieldT > 0f) { Chip(new Rect(pr.x, py, 150, 28), $"シールド {player.shieldT:F0}", new Color(.5f, .8f, .9f)); py += 32; }
             if (spec.mod > 0) Chip(new Rect(pr.x, py, 150, 28), spec.modText, new Color(1f, .5f, .35f));

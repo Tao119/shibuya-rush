@@ -13,9 +13,9 @@ namespace ShibuyaRush
         LevelGen levels; LevelSpec spec, homeSpec; Pickups pickups; Rival rival; Ghost ghost; HumanoidRenderer rivalHr, ghostHr; Cosmetics cosm;
         UiPanel panel; int shopTab; bool dailyPopup;
         // ---- 1回の挑戦の記録 ----
-        int runCoinCount, runCoins, coinStreak, runMaxCombo, nearMiss, runPlow0, runSkill0; float bonusTime, magnetT, coinPulse, coinStreakT, nearCd, hintT; bool continueUsed, ghostShown; string failReason = "";
+        int trickN, ghostPassMark; float trickT; bool ghostPassed; int runCoinCount, runCoins, coinStreak, runMaxCombo, nearMiss, runPlow0, runSkill0; float bonusTime, magnetT, coinPulse, coinStreakT, nearCd, hintT; bool continueUsed, ghostShown; string failReason = "";
         float magnetBase;
-        class ResultInfo { public int stars, collected, baseReward, noHit, allCoins, comboBonus, rivalBonus, modBonus, total, extra; public bool newBest, rivalWon, levelUp, noHitRun, claimed; public float mult; public string note = ""; }
+        class ResultInfo { public float diff; public bool hadBest; public int stars, collected, baseReward, noHit, allCoins, comboBonus, rivalBonus, modBonus, total, extra; public bool newBest, rivalWon, levelUp, noHitRun, claimed; public float mult; public string note = ""; }
         ResultInfo res = new ResultInfo();
         // ---- ダミー広告 ----
         Action adCallback; float adT; string adLabel = "";
@@ -33,8 +33,9 @@ namespace ShibuyaRush
             beam.SetActive(true); beam.transform.position = new Vector3(goal.x, Heightfield.Current.Height(goal.x, goal.y) + goalLift + 40, goal.y); beam.transform.localScale = new Vector3(2.4f, 40f, 2.4f);
             goalDist = (goal - s.start).magnitude; par3 = s.par3; par2 = s.par2;
             combo = 0; comboT = 0; comboBonus = 0; lastHits = player.plowed + player.shoved; lastCount = -1; resultNote = ""; starsEarned = 0; pops.Clear();
-            runCoins = 0; runCoinCount = 0; coinStreak = 0; runMaxCombo = 0; nearMiss = 0; hits = 0; bonusTime = 0; magnetT = 0; continueUsed = false; hintT = 0; ghostShown = false;
+            trickN = 0; trickT = 0; ghostPassed = false; runCoins = 0; runCoinCount = 0; coinStreak = 0; runMaxCombo = 0; nearMiss = 0; hits = 0; bonusTime = 0; magnetT = 0; continueUsed = false; hintT = 0; ghostShown = false;
             runPlow0 = player.plowed + player.shoved; runSkill0 = player.skillUses; res = new ResultInfo(); failReason = "";
+            crowd.Recenter(s.start); routeT = 0f; guide.Clear();
             ApplyUpgrades();
             pickups.Populate(s.route, s.seed, graph, city);
             rival = s.boss ? new Rival(s.route, graph, s.rivalTime) : null;
@@ -49,7 +50,7 @@ namespace ShibuyaRush
             int bad = 0; var sb = new System.Text.StringBuilder();
             for (int n = 1; n <= 40; n++)
             {
-                var sp = levels.Make(n); bool ok = sp.route.Count >= 2 && sp.pathLen > 50f && sp.limit > sp.par2 && sp.par2 > sp.par3 && sp.par3 > 5f;
+                var sp = levels.Make(n); bool ok = sp.route.Count >= 2 && levels.Walkable(sp.route) && sp.pathLen > 50f && sp.limit > sp.par2 && sp.par2 > sp.par3 && sp.par3 > 5f;
                 if (!ok) bad++;
                 if (n <= 12 || !ok) sb.Append($"\n  L{n}: {sp.startName} -> {sp.goalName} len={sp.pathLen:F0}m limit={sp.limit:F0}s par={sp.par3:F0}/{sp.par2:F0} mod={sp.mod} boss={sp.boss}{(ok ? "" : "  NG")}");
             }
@@ -60,6 +61,7 @@ namespace ShibuyaRush
         {
             state = GameState.Menu; panel = UiPanel.None; beam.SetActive(false); Time.timeScale = 1f;
             if (Store.D.level > 0) homeSpec = levels.Make(Store.D.level);
+            crowd.Recenter(homeSpec.start); guide.Clear();
             player.pos = homeSpec.start; player.yaw = 0; player.ResetState(); player.lift = graph.nodeLift[graph.NearestNode(homeSpec.start)]; pickups.Clear(); rival = null;
         }
 
@@ -83,7 +85,7 @@ namespace ShibuyaRush
             if (state != GameState.Playing) return;
             if (k == Pickups.Kind.Coin || k == Pickups.Kind.Gem)
             {
-                runCoins += value; if (k == Pickups.Kind.Coin) runCoinCount++; coinStreak++; coinStreakT = 0.9f; coinPulse = Time.unscaledTime;
+                int tm = trickN >= 2 ? Mathf.Min(4, trickN) : 1; value *= tm; runCoins += value; if (k == Pickups.Kind.Coin) runCoinCount++; coinStreak++; coinStreakT = 0.9f; coinPulse = Time.unscaledTime;
                 fx.PlayCoin(coinStreak); fx.Sparkle(w, k == Pickups.Kind.Gem ? new Color(.8f, .5f, 1f) : new Color(1f, .85f, .2f), k == Pickups.Kind.Gem ? 18 : 5);
                 if (k == Pickups.Kind.Gem) Pop("+10", w + Vector3.up, new Color(.85f, .6f, 1f), 1.2f);
                 else if (coinStreak % 10 == 0) Pop("コイン x" + coinStreak, w + Vector3.up, new Color(1f, .9f, .3f), 0.9f);
@@ -124,6 +126,7 @@ namespace ShibuyaRush
             res.total = Mathf.RoundToInt((res.collected + res.baseReward + res.noHit + res.allCoins + res.comboBonus + res.rivalBonus) * inc);
             if (!autoplay)
             {
+                float prevBest = Store.BestTime(spec.key); res.hadBest = prevBest < 9000f; res.diff = raceT - prevBest;
                 res.newBest = Store.SetBest(spec.key, raceT, res.stars);
                 if (res.newBest) { ghost.Save(spec.key); resultNote = "NEW BEST!"; }
                 d.coins += res.total; d.totalCoins += res.total; d.totalWins++; d.totalRuns++;
@@ -164,6 +167,54 @@ namespace ShibuyaRush
         {   // 失敗後、広告を見て15秒もらって続ける
             bonusTime += 15f; continueUsed = true; state = GameState.Playing; stateT = 0; Store.D.coins -= res.total; Store.D.totalCoins -= res.total; Store.D.totalRuns = Mathf.Max(0, Store.D.totalRuns - 1); Store.Commit();
             fx.Banner = "つづき!"; fx.BannerSub = "+15秒"; fx.BannerColor = new Color(.5f, 1f, .6f); fx.BannerT = 1f;
+        }
+
+        /// <summary>スキルをつなげるほどコインが増える(3秒以内に次のスキルでチェーン)。</summary>
+        void Trick(Vector3 w)
+        {
+            trickN++; trickT = 3f;
+            if (trickN >= 2) Pop("TRICK ×" + Mathf.Min(4, trickN), w + Vector3.up * 3.2f, new Color(1f, .6f, .9f), 1.4f);
+        }
+
+        // ---- 地面の道しるべ: 目的地までの最短経路にそって、流れる矢じるしを並べる ----
+        readonly List<Vector2> guide = new List<Vector2>(); float routeT; Mesh chevron; readonly List<Matrix4x4> chevL = new List<Matrix4x4>(); Material chevMat;
+
+        void UpdateRouteGuide(float dt)
+        {
+            if (state != GameState.Playing && state != GameState.Countdown) return;
+            routeT -= dt; if (routeT > 0f) return; routeT = touchMode ? 1.6f : 1.0f;
+            var r = graph.Path(player.pos, goal); guide.Clear(); if (r.Count >= 2) guide.AddRange(r);
+        }
+
+        void RenderRouteGuide()
+        {
+            if ((state != GameState.Playing && state != GameState.Countdown) || guide.Count < 2) return;
+            if (chevron == null)
+            {
+                chevron = new Mesh { name = "Chevron" };
+                chevron.SetVertices(new[] { new Vector3(0, .05f, 1.0f), new Vector3(-1.1f, .05f, -0.5f), new Vector3(0, .05f, 0.05f), new Vector3(1.1f, .05f, -0.5f) });
+                chevron.SetTriangles(new[] { 0, 2, 1, 0, 3, 2, 1, 2, 0, 2, 3, 0 }, 0); chevron.RecalculateNormals(); chevron.RecalculateBounds();
+                chevMat = new Material(M("Goal")); chevMat.SetColor("_BaseColor", new Color(1f, .9f, .2f)); chevMat.SetColor("_EmissionColor", new Color(2.2f, 1.7f, .2f)); chevMat.enableInstancing = true;
+            }
+            float shift = (Time.unscaledTime * 7f) % 6f, s = -shift, lift = player.lift, total = 0f; chevL.Clear(); var hf = Heightfield.Current;
+            // 現在位置にいちばん近い線分から先へ、6mおき・最大110m
+            int start = 0; float bd = float.MaxValue;
+            for (int i = 0; i + 1 < guide.Count; i++) { var a = guide[i]; var b = guide[i + 1]; var ab = b - a; float l2 = ab.sqrMagnitude; float tt = l2 > 1e-4f ? Mathf.Clamp01(Vector2.Dot(player.pos - a, ab) / l2) : 0f; float d = (a + ab * tt - player.pos).sqrMagnitude; if (d < bd) { bd = d; start = i; } }
+            var cur = player.pos; float carry = 3f;
+            for (int i = start; i + 1 < guide.Count && total < 110f; i++)
+            {
+                var b = guide[i + 1]; var seg = b - cur; float l = seg.magnitude; if (l < 1e-3f) { cur = b; continue; } var dir = seg / l; float pos = carry;
+                while (pos < l && total + pos < 110f)
+                {
+                    var p = cur + dir * pos; lift = graph.ReachableLift(p.x, p.y, lift); float fade = 1f - (total + pos) / 130f;
+                    chevL.Add(Matrix4x4.TRS(new Vector3(p.x, hf.Height(p.x, p.y) + lift + 0.12f, p.y), Quaternion.LookRotation(new Vector3(dir.x, 0, dir.y)), new Vector3(0.7f, 1f, 0.9f) * (0.55f + 0.45f * fade)));
+                    pos += 6f;
+                }
+                carry = pos - l; total += l; cur = b;
+            }
+            if (chevL.Count == 0) return;
+            var rp = new RenderParams(chevMat) { shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off, receiveShadows = false };
+            var arr = chevL.ToArray(); for (int i = 0; i < arr.Length; i += 500) Graphics.RenderMeshInstanced(rp, chevron, 0, arr, Mathf.Min(500, arr.Length - i), 0);
         }
 
         void Pause() { if (state == GameState.Playing) { state = GameState.Paused; } }

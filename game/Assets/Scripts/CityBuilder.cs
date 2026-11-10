@@ -17,6 +17,29 @@ namespace ShibuyaRush
 
         static long Key(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
 
+        /// <summary>描かない(当たりも付けない)建物の番号。道が通っている建物は、道を優先して取り除く。</summary>
+        public HashSet<int> Hidden = new HashSet<int>(); readonly List<int> footSrc = new List<int>();
+
+        /// <summary>道との重なりを調べるため、建物の形だけを登録する(描画はしない)。</summary>
+        public void RegisterOnly(CityData city)
+        {
+            for (int bi = 0; bi < city.buildings.Length; bi++)
+            {
+                var b = city.buildings[bi]; int n = b.p.Length / 2; if (n < 3) continue;
+                var poly = new Vector2[n]; for (int i = 0; i < n; i++) poly[i] = new Vector2(b.p[i * 2], b.p[i * 2 + 1]);
+                if (SignedArea(poly) < 0) System.Array.Reverse(poly);
+                Register(poly); footSrc.Add(bi);
+            }
+        }
+
+        /// <summary>点を含む建物のデータ番号(なければ -1)。</summary>
+        public int BuildingAt(float x, float z)
+        {
+            if (!grid.TryGetValue(Key(Mathf.FloorToInt(x / Cell), Mathf.FloorToInt(z / Cell)), out var l)) return -1;
+            foreach (int id in l) { var bx = boxes[id]; if (x < bx.x || x > bx.z || z < bx.y || z > bx.w) continue; if (Inside(footprints[id], x, z)) return id < footSrc.Count ? footSrc[id] : -1; }
+            return -1;
+        }
+
         public GameObject Build(CityData city, Material ground, Material road, Material walkway, Material[] palette, Material marking = null)
         {
             var root = new GameObject("City"); Root = root;
@@ -156,8 +179,9 @@ namespace ShibuyaRush
             var verts = new List<Vector3>[palette.Length]; var tris = new List<int>[palette.Length]; var uvs = new List<Vector2>[palette.Length];
             for (int i = 0; i < palette.Length; i++) { verts[i] = new List<Vector3>(); tris[i] = new List<int>(); uvs[i] = new List<Vector2>(); }
             int bi = 0;
-            foreach (var b in city.buildings)
+            for (int srcI = 0; srcI < city.buildings.Length; srcI++)
             {
+                var b = city.buildings[srcI]; if (Hidden.Contains(srcI)) continue;
                 int n = b.p.Length / 2; if (n < 3) continue;
                 var poly = new Vector2[n];
                 for (int i = 0; i < n; i++) poly[i] = new Vector2(b.p[i * 2], b.p[i * 2 + 1]);

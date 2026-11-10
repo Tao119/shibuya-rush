@@ -37,7 +37,7 @@ namespace ShibuyaRush
         // ポストエフェクト
         readonly Tonemapping tone; readonly Bloom bloom; readonly Vignette vig; readonly ChromaticAberration ca; readonly LensDistortion ld; readonly ColorAdjustments colAdj;
         // 効果音
-        readonly AudioSource audio, music; readonly AudioSource[] pool = new AudioSource[8]; int poolI; readonly AudioClip cDash, cSlip, cShove, cBump, cReady, cPop, cWin, cGo;
+        readonly AudioSource audio, music; readonly AudioSource[] pool = new AudioSource[8]; int poolI; readonly AudioClip cDash, cSlip, cShove, cBump, cReady, cPop, cWin, cGo, cCoin, cPower, cFail, cClick, cCash; bool sfxOn = true;
         float puffT;
         public bool PostOk { get; private set; }
 
@@ -87,6 +87,11 @@ namespace ShibuyaRush
             cGo = Clip("go", 0.4f, (t, d) => (Mathf.Sin(t * 1320f * 6.28f) + 0.5f * Mathf.Sin(t * 1980f * 6.28f)) * Mathf.Exp(-t * 7f) * 0.35f);
             cWin = Clip("win", 1.1f, (t, d) => { float[] nt = { 523.25f, 659.25f, 783.99f, 1046.5f, 783.99f, 1046.5f }; int k = Mathf.Min(nt.Length - 1, (int)(t / 0.14f)); float lt = t - k * 0.14f; float tri = Mathf.Asin(Mathf.Sin(lt * nt[k] * 6.28f)) * 0.64f; return tri * Mathf.Exp(-lt * 6f) * 0.5f; });
             music.clip = BuildMusic(); if (music.clip != null) music.Play();
+            cCoin = Clip("coin", 0.22f, (t, d) => { float e = Mathf.Exp(-t * 14f); float f = t < 0.06f ? 988f : 1319f; return (Mathf.Sin(t * f * 6.28f) * 0.5f + Mathf.Sin(t * f * 2f * 6.28f) * 0.15f) * e * 0.55f; });
+            cPower = Clip("power", 0.5f, (t, d) => { float[] nt = { 523f, 659f, 784f, 1047f }; int k = Mathf.Min(3, (int)(t / 0.08f)); float lt = t - k * 0.08f; return Mathf.Asin(Mathf.Sin(lt * nt[k] * 6.28f)) * 0.64f * Mathf.Exp(-lt * 5f) * 0.5f; });
+            cFail = Clip("fail", 0.9f, (t, d) => { float f = 330f * Mathf.Pow(0.5f, t / d * 1.4f); return Mathf.Asin(Mathf.Sin(t * f * 6.28f)) * 0.64f * Mathf.Exp(-t * 3.5f) * 0.55f; });
+            cClick = Clip("click", 0.08f, (t, d) => Mathf.Sin(t * 880f * 6.28f) * Mathf.Exp(-t * 55f) * 0.5f);
+            cCash = Clip("cash", 0.35f, (t, d) => { float f = t < 0.1f ? 1319f : 1760f; return Mathf.Sin(t * f * 6.28f) * Mathf.Exp(-(t < 0.1f ? t : t - 0.1f) * 12f) * 0.45f; });
             cReady = Clip("ready", 0.2f, (t, d) => Mathf.Sin(t * 1320f * 6.28f) * Mathf.Exp(-t * 14f) * 0.25f);
         }
 
@@ -152,7 +157,7 @@ namespace ShibuyaRush
             SpawnRing(p, new Color(1f, 0.85f, 0.4f, 1f), 7f, 0.55f); SpawnRing(p, new Color(1f, 1f, 1f, 1f), 4f, 0.35f);
             Burst(p + Vector3.up * 0.2f, -new Vector3(dir.x, 0, dir.y), 60, 9f, new Color(1f, 0.8f, 0.3f), 0.35f);
             Banner = "ダッシュ!"; BannerSub = "押しのけて突き進め"; BannerColor = new Color(1f, 0.85f, 0.3f); BannerT = 1.0f;
-            audio.PlayOneShot(cDash);
+            One(cDash);
         }
 
         public void OnSlip(Vector3 p)
@@ -162,7 +167,7 @@ namespace ShibuyaRush
             SpawnRing(p, new Color(0.4f, 0.85f, 1f, 1f), 10f, 1.0f); SpawnRing(p, new Color(0.8f, 0.6f, 1f, 1f), 6f, 0.8f); SpawnRing(p, new Color(1f, 1f, 1f, 1f), 3f, 0.5f);
             Burst(p + Vector3.up, Vector3.up, 140, 5f, new Color(0.5f, 0.9f, 1f), 0.3f);
             Banner = "すり抜け!!"; BannerSub = "TIME STOP"; BannerColor = new Color(0.5f, 0.9f, 1f); BannerT = 1.4f;
-            audio.PlayOneShot(cSlip);
+            One(cSlip);
         }
 
         public void OnShove(Vector3 p, Vector2 dir)
@@ -172,7 +177,7 @@ namespace ShibuyaRush
             SpawnRing(p, new Color(1f, 0.5f, 0.3f, 1f), 14f, 0.6f); SpawnRing(p, new Color(1f, 1f, 0.8f, 1f), 9f, 0.45f);
             Burst(p + Vector3.up * 0.5f, new Vector3(dir.x, 0.15f, dir.y), 160, 14f, new Color(1f, 0.55f, 0.25f), 0.4f);
             Banner = "かき分け!!"; BannerSub = "道を開けろ"; BannerColor = new Color(1f, 0.5f, 0.35f); BannerT = 1.1f;
-            audio.PlayOneShot(cShove);
+            One(cShove);
         }
 
         public void OnBump(Vector3 p, Vector2 dir)
@@ -182,6 +187,15 @@ namespace ShibuyaRush
             PlayBump();
         }
 
+        public void SetAudio(bool musicOn, bool sfx) { sfxOn = sfx; if (music != null) music.mute = !musicOn; }
+        void One(AudioClip c) { if (sfxOn) audio.PlayOneShot(c); }
+        public void PlayCoin(int streak) { Play(cCoin, 0.6f, 1f + 0.045f * Mathf.Min(streak, 14)); }
+        public void PlayPower() { Play(cPower, 0.8f, 1f); }
+        public void PlayFail() { Play(cFail, 0.9f, 1f); }
+        public void PlayClick() { Play(cClick, 0.7f, 1f); }
+        public void PlayCash() { Play(cCash, 0.8f, 1f); }
+        public void Sparkle(Vector3 p, Color c, int n = 10) { Burst(p, Vector3.up, n, 3.5f, c, 0.22f); }
+        public void BigBurst(Vector3 p, Color c) { SpawnRing(p, c, 5f, 0.5f); Burst(p, Vector3.up, 40, 7f, c, 0.3f); }
         public void PlayReady() { Play(cReady, 0.8f, 1f); }
         public void PlayGo() { Play(cGo, 0.9f, 1f); }
         public void PlayWin() { Play(cWin, 0.9f, 1f); }
@@ -189,7 +203,7 @@ namespace ShibuyaRush
         public void PlayBump() { Play(cBump, 0.55f, UnityEngine.Random.Range(0.8f, 1.25f)); }
         void Play(AudioClip c, float vol, float pitch)
         {
-            var src = pool[poolI++ % pool.Length]; src.pitch = pitch; src.PlayOneShot(c, vol);
+            if (!sfxOn) return; var src = pool[poolI++ % pool.Length]; src.pitch = pitch; src.PlayOneShot(c, vol);
         }
 
         /// <summary>ゴールの紙吹雪。</summary>

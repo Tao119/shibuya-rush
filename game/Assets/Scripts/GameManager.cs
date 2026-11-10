@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace ShibuyaRush
 {
-    public enum GameState { Menu, Countdown, Playing, Finished }
+    public enum GameState { Menu, Countdown, Playing, Paused, Finished, Failed }
 
     /// <summary>ゲーム全体の進行・カメラ・HUD・テスト用Bot。シーンにはこのコンポーネントを持つ空のオブジェクトが1つあれば動く。</summary>
     public partial class GameManager : MonoBehaviour
@@ -20,9 +20,10 @@ namespace ShibuyaRush
         SkillFx fx; GameObject arrow3d; Texture2D arrowTex, vigTex; Material arrowMat;
         readonly InputHub input = new InputHub(); bool touchMode, crowdArg, carsArg;
         // Bot / 計測
-        bool autoplay, noSkills, selfTest, fxTest, menuShot, finShot2, fakeJoy; float menuQuitAt; bool f1, f2, f3; float shotAt; string shotTag; Vector2 startPos = new Vector2(3.6f, -3.2f); float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT; bool stuckLogged;
+        bool autoplay, noSkills, selfTest, resetSave, noPersist, demoWin, demoFail; string panelArg = ""; int levelArg; bool fxTest, menuShot, finShot2, fakeJoy; float menuQuitAt; bool f1, f2, f3; float shotAt; string shotTag; Vector2 startPos = new Vector2(3.6f, -3.2f); float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT; bool stuckLogged;
         readonly List<float> frameMs = new List<float>(); float nextShot; int shotNo; string resultNote = "";
 
+        int giveCoins;
         Material M(string n) => Resources.Load<Material>("Mats/" + n);
 
         void Awake()
@@ -32,6 +33,12 @@ namespace ShibuyaRush
             {
                 if (args[i] == "-autoplay" && i + 1 < args.Length) { autoplay = true; poiIndex = int.Parse(args[i + 1]); }
                 if (args[i] == "-noskills") noSkills = true;
+                if (args[i] == "-level" && i + 1 < args.Length) { autoplay = true; levelArg = int.Parse(args[i + 1]); poiIndex = -1; }
+                if (args[i] == "-resetsave") resetSave = true;
+                if (args[i] == "-nopersist") noPersist = true;
+                if (args[i] == "-panel" && i + 1 < args.Length) panelArg = args[i + 1];
+                if (args[i] == "-demo" && i + 1 < args.Length) { demoWin = args[i + 1] == "win"; demoFail = args[i + 1] == "fail"; }
+                if (args[i] == "-givecoins" && i + 1 < args.Length) giveCoins = int.Parse(args[i + 1]);
                 if (args[i] == "-selftest") selfTest = true;
                 if (args[i] == "-fxtest") fxTest = true;
                 if (args[i] == "-menushot") menuShot = true;
@@ -81,6 +88,12 @@ namespace ShibuyaRush
             traffic = new Traffic(carGraph, graph, crowd, carCount, carMats, M("CarCabin"));
             player = new Player(city, crowd, graph, Vector2.zero) { yaw = 0 };
             fx = new SkillFx(this, cam, M("FxAdd"), new[] { M("GhostA"), M("GhostB"), M("GhostC") }, M("Skin"));
+            Store.NoPersist = noPersist || autoplay; if (resetSave) Store.Reset();
+            if (giveCoins > 0) { Store.D.coins += giveCoins; Store.Commit(); }
+            fx.SetAudio(Store.D.music, Store.D.sfx);
+            levels = new LevelGen(graph, data); pickups = new Pickups(); pickups.OnPick = OnPick; ghost = new Ghost(); cosm = new Cosmetics(transform, M("FxAdd"));
+            rivalHr = new HumanoidRenderer(new[] { Cosmetics.Flat(new Color(.55f, .3f, 1f)) }, Cosmetics.Flat(new Color(.12f, .1f, .25f)), M("Skin"));
+            RebuildPlayerRenderer(); ApplyUpgrades(); Store.EnsureMissions();
             arrow3d = new GameObject("GoalArrow"); arrow3d.AddComponent<MeshFilter>().sharedMesh = ArrowMesh();
             arrow3d.AddComponent<MeshRenderer>().sharedMaterial = M("Goal"); arrow3d.SetActive(false);
             arrowTex = MakeArrowTex(); vigTex = MakeVignetteTex();
@@ -104,7 +117,16 @@ namespace ShibuyaRush
             }
             if (selfTest) RunCollisionTests();
             Debug.Log($"[Shibuya] roads={data.roads.Length} buildings={city.BuildingCount} nodes={graph.nodes.Count} main={graph.MainCount} edges={graph.edges.Count} hubs={graph.hubNodes.Length} crowd={crowd.Count} post={fx.PostOk} trees={props.TreeCount} lamps={props.LampCount} signals={props.SignalCount} neon={props.NeonCount}");
-            if (autoplay) StartRace(poiIndex); else if (shotDir != null) { Directory.CreateDirectory(shotDir); }
+            if (shotDir != null) Directory.CreateDirectory(shotDir);
+            if (selfTest) RunLevelTests();
+            if (autoplay) StartLevel(poiIndex >= 0 ? levels.MakeFree(poiIndex) : levels.Make(levelArg));
+            else
+            {
+                homeSpec = levels.Make(Store.D.level); player.pos = homeSpec.start; player.lift = graph.nodeLift[graph.NearestNode(homeSpec.start)];
+                if (panelArg == "shop") panel = UiPanel.Shop; else if (panelArg == "missions") panel = UiPanel.Missions; else if (panelArg == "settings") panel = UiPanel.Settings; else if (panelArg == "free") panel = UiPanel.Free;
+                dailyPopup = (panelArg == "daily") || (panelArg == "" && Store.GiftReady && !menuShot);
+                if (demoWin || demoFail) StartLevel(homeSpec);
+            }
         }
 
         /// <summary>壁・人・車にめり込まないことの自動検証。結果は [SelfTest] としてログに出る。</summary>
@@ -133,18 +155,6 @@ namespace ShibuyaRush
                 minAll = Mathf.Min(minAll, minD); if (minD < 0.4f) cp++;
             }
             Debug.Log($"[SelfTest] crowd: tested={ct} closer_than_0.4m={cp} (期待 ほぼ0) minDistance={minAll:F2}");
-        }
-
-        void StartRace(int idx)
-        {
-            poiIndex = idx; var poi = data.pois[idx]; goalName = poi.name;
-            /* ゴールは地上のノード(高架の上は階段を探さないと着けないため) */ int gn = graph.NearestNode(new Vector2(poi.x, poi.z), 0.5f); goal = graph.nodes[gn]; goalLift = graph.nodeLift[gn];
-            player.pos = startPos; player.yaw = 0; raceT = 0; player.lift = graph.nodeLift[graph.NearestNode(startPos)]; state = GameState.Countdown; stateT = 0;
-            beam.SetActive(true); beam.transform.position = new Vector3(goal.x, Heightfield.Current.Height(goal.x, goal.y) + goalLift + 40, goal.y); beam.transform.localScale = new Vector3(2.4f, 40f, 2.4f);
-            goalDist = (goal - startPos).magnitude; par3 = 0.19f * goalDist + 5f; par2 = 0.3f * goalDist + 9f;
-            combo = 0; comboT = 0; comboBonus = 0; lastHits = player.plowed + player.shoved; lastCount = -1; resultNote = ""; starsEarned = 0; pops.Clear();
-            if (autoplay) { botPath = graph.Path(player.pos, goal); botIdx = 0; Debug.Log($"[Bot] route nodes={botPath.Count} dest={goalName}"); if (shotDir != null) Directory.CreateDirectory(shotDir); }
-            Cursor.lockState = CursorLockMode.None;
         }
 
         Vector2 ReadWish(out bool dash, out bool slip, out bool shove)
@@ -194,58 +204,68 @@ namespace ShibuyaRush
             return to.normalized;
         }
 
+        int lastRemI = -1; bool demoShot;
+
         void Update()
         {
             float dt = Mathf.Min(Time.deltaTime, 0.05f), rdt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            bool frozen = state == GameState.Paused; if (frozen) { dt = 0f; rdt = 0f; }
             ComputeLayout(); input.uiScale = L.S; input.playing = state == GameState.Playing && !autoplay;
             input.btnDash = new InputHub.Circle { c = L.sDash, r = L.sR }; input.btnSlip = new InputHub.Circle { c = L.sSlip, r = L.sR }; input.btnShove = new InputHub.Circle { c = L.sShove, r = L.sR };
-            input.noDrive.Clear(); input.noDrive.Add(L.timer); input.noDrive.Add(L.chip); input.noDrive.Add(L.minimap);
+            input.noDrive.Clear(); input.noDrive.Add(L.timer); input.noDrive.Add(L.chip); input.noDrive.Add(L.minimap); input.noDrive.Add(L.pause);
             input.Update(rdt);
             if (input.usingTouch && !touchMode) touchMode = true;
             if (fakeJoy) { input.stickActive = true; input.stickOrigin = new Vector2(L.x0 + 130f, L.y1 - 110f); input.stickPos = input.stickOrigin + new Vector2(38f, -30f); }
             if (state == GameState.Playing || state == GameState.Countdown) frameMs.Add(Time.unscaledDeltaTime * 1000f);
             stateT += dt;
-            hb += Time.unscaledDeltaTime; if (autoplay && hb > 5f) { hb = 0; Debug.Log($"[HB] t={Time.timeSinceLevelLoad:F0} wait={crowd.Waiting} state={state} race={raceT:F1} pos={player.pos} lift={player.lift:F1} idx={botIdx}/{(botPath != null ? botPath.Count : 0)} spd={player.speedNow:F1} stag={player.stagger:F1} fps={1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f):F0}"); }
-            bool dash, slip, shove; Vector2 wish = Vector2.zero;
+            if (adT > 0f) { adT -= Time.unscaledDeltaTime; if (adT <= 0f) { adT = 0f; var cb = adCallback; adCallback = null; cb?.Invoke(); } }
+            UpdateToasts();
+            hb += Time.unscaledDeltaTime; if (autoplay && hb > 5f) { hb = 0; Debug.Log($"[HB] t={Time.timeSinceLevelLoad:F0} wait={crowd.Waiting} state={state} race={raceT:F1} pos={player.pos} lift={player.lift:F1} idx={botIdx}/{(botPath != null ? botPath.Count : 0)} spd={player.speedNow:F1} stag={player.stagger:F1} coins={runCoins} fps={1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f):F0}"); }
+            bool dash = false, slip = false, shove = false; Vector2 wish = Vector2.zero;
             if (state == GameState.Menu)
             {
-                for (int k = 0; k < Mathf.Min(data.pois.Length, 9); k++) if (Input.GetKeyDown(KeyCode.Alpha1 + k)) StartRace(k);
-                dash = slip = shove = false;
+                if (panel == UiPanel.None && !dailyPopup && adT <= 0f && (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return))) StartLevel(homeSpec);
+                if (panel == UiPanel.None && !dailyPopup) for (int k = 0; k < Mathf.Min(data.pois.Length, 9); k++) if (Input.GetKeyDown(KeyCode.Alpha1 + k)) StartLevel(levels.MakeFree(k));
+                if (Input.GetKeyDown(KeyCode.Escape)) { if (panel != UiPanel.None) panel = UiPanel.None; dailyPopup = false; }
+                camYaw += (panel == UiPanel.Shop ? 30f : 8f) * rdt;
             }
             else if (state == GameState.Countdown)
             {
-                dash = slip = shove = false;
                 int ci = (int)stateT; if (ci != lastCount && ci < 3) { lastCount = ci; fx.PlayReady(); }
-                if (stateT >= 3f) { state = GameState.Playing; stateT = 0; fx.PlayGo(); fx.Banner = "GO!"; fx.BannerSub = ""; fx.BannerColor = new Color(.5f, 1f, .6f); fx.BannerT = 0.8f; }
+                if (stateT >= 3f) { state = GameState.Playing; stateT = 0; fx.PlayGo(); fx.Banner = "GO!"; fx.BannerSub = spec.modText; fx.BannerColor = new Color(.5f, 1f, .6f); fx.BannerT = 0.8f; }
             }
             else if (state == GameState.Playing)
             {
+                if (!autoplay && (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P))) Pause();
                 wish = autoplay ? BotWish(out dash, out slip, out shove) : ReadWish(out dash, out slip, out shove);
                 if (!fx.ClockFrozen) raceT += dt;
-                if ((player.pos - goal).magnitude < GoalRadius && Mathf.Abs(player.lift - goalLift) < 2.5f)
+                pickups.Tick(dt, player.pos, player.lift, Mathf.Max(magnetBase, magnetT > 0f ? 8f : 0f));
+                ghost.Record(dt, player.pos, player.yaw, player.lift); ghostShown = ghost.Sample(raceT);
+                if (rival != null) rival.Tick(dt);
+                magnetT = Mathf.Max(0f, magnetT - dt); coinStreakT -= dt; if (coinStreakT <= 0f) coinStreak = 0; nearCd -= rdt; hintT += dt;
+                int remI = Mathf.CeilToInt(Remaining); if (!spec.free && remI != lastRemI && remI <= 5 && remI >= 1) fx.PlayReady(); lastRemI = remI;
+                if ((player.pos - goal).magnitude < GoalRadius && Mathf.Abs(player.lift - goalLift) < 2.5f) OnReachGoal();
+                else if (!spec.free && Remaining <= 0f) OnFail("TIME UP");
+                if ((demoWin || demoFail) && stateT > 1.5f)
                 {
-                    state = GameState.Finished; stateT = 0; Cursor.lockState = CursorLockMode.None;
-                    string key = "best_" + data.pois[poiIndex].id; float best = PlayerPrefs.GetFloat(key, 9999f);
-                    starsEarned = raceT <= par3 ? 3 : raceT <= par2 ? 2 : 1;
-                    if (!autoplay)
-                    {
-                        if (raceT < best) { PlayerPrefs.SetFloat(key, raceT); resultNote = "NEW BEST!"; }
-                        string sk = "stars_" + data.pois[poiIndex].id; if (starsEarned > PlayerPrefs.GetInt(sk, 0)) PlayerPrefs.SetInt(sk, starsEarned);
-                    }
-                    fx.Confetti(new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y)); fx.PlayWin();
-                    Debug.Log($"[Result] dest={goalName} time={raceT:F1}s");
-                    Shot("finish"); WriteResult();
+                    runCoins = 47; combo = 31; runMaxCombo = 31; demoShot = true;
+                    if (demoWin) { raceT = Mathf.Max(1f, par3 - 2f); demoWin = false; OnReachGoal(); } else { raceT = spec.limit + bonusTime; demoFail = false; OnFail("TIME UP"); }
                 }
             }
-            else
+            else if (state == GameState.Finished || state == GameState.Failed)
             {
-                dash = slip = shove = false;
-                if (Input.GetKeyDown(KeyCode.R)) StartRace(poiIndex);
-                if (Input.GetKeyDown(KeyCode.M)) { state = GameState.Menu; beam.SetActive(false); player.pos = Vector2.zero; }
+                if (Input.GetKeyDown(KeyCode.R)) StartLevel(spec);
+                if (state == GameState.Finished && !spec.free && Input.GetKeyDown(KeyCode.N)) StartLevel(levels.Make(Store.D.level));
+                if (Input.GetKeyDown(KeyCode.M)) GoHome();
             }
-            if (state == GameState.Menu || state == GameState.Countdown || state == GameState.Finished) { dash = slip = shove = false; wish = Vector2.zero; }
+            else if (state == GameState.Paused)
+            {
+                if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P)) Resume();
+            }
+            if (state != GameState.Playing) { dash = slip = shove = false; wish = Vector2.zero; }
+            if (state != GameState.Playing) coinStreak = 0;
 
-            if (!autoplay)
+            if (!autoplay && !frozen)
             {   // 視点: 手動で回す(右ドラッグ・←→・右側スワイプ)。それ以外は進む向きへ自動で追従する
                 camYaw += input.camDelta;
                 if (state == GameState.Playing && input.manualCamT <= 0f && input.stick.sqrMagnitude > 0.09f)
@@ -270,7 +290,7 @@ namespace ShibuyaRush
             int hitsNow = player.plowed + player.shoved; int dh = hitsNow - lastHits; lastHits = hitsNow;
             if (state == GameState.Playing && dh > 0)
             {
-                combo += dh; comboT = 1.6f; comboPop = Time.unscaledTime; fx.PlayPop((int)combo);
+                combo += dh; runMaxCombo = Mathf.Max(runMaxCombo, (int)combo); comboT = 1.6f; comboPop = Time.unscaledTime; fx.PlayPop((int)combo);
                 if (combo >= 2 && Time.frameCount % 3 == 0) Pop("+" + dh, pw + Vector3.up * 2.4f, new Color(1f, .95f, .4f), 0.8f);
                 while ((int)combo / 25 > comboBonus)
                 {
@@ -289,27 +309,40 @@ namespace ShibuyaRush
             if (!player.Slipping && traffic.Collide(player.pos, player.lift, out var push, out bool fast))
             {
                 var np = player.pos + push; if (!city.Blocked(np.x, np.y)) player.Shove(push);
-                if (fast && hitCd <= 0 && state == GameState.Playing) { hitCd = 2f; hitFlash = 1.5f; hits++; raceT += 3f; player.Knock(push.normalized * 9f); }
+                if (fast && hitCd <= 0 && state == GameState.Playing)
+                {
+                    if (player.shieldT > 0f) { hitCd = 1f; fx.BigBurst(pw + Vector3.up, new Color(.8f, 1f, 1f)); Pop("シールド!", pw + Vector3.up * 2.5f, new Color(.85f, 1f, 1f), 1.2f); player.Knock(push.normalized * 5f); }
+                    else { hitCd = 2f; hitFlash = 1.5f; hits++; raceT += 3f; player.Knock(push.normalized * 9f); Haptic(); if (!spec.free && spec.mod == 3) OnFail("NO DAMAGE"); }
+                }
+            }
+            else if (state == GameState.Playing && nearCd <= 0f && !player.Slipping && player.speedNow > 2.5f && traffic.NearMiss(player.pos, player.lift))
+            {
+                nearCd = 1.4f; nearMiss++; runCoins += 3; fx.PlayCoin(10); Pop("ニアミス! +3", pw + Vector3.up * 2.6f, new Color(1f, .75f, .3f), 1.1f); coinPulse = Time.unscaledTime;
             }
             if (autoplay && state == GameState.Playing) camYaw = Mathf.LerpAngle(camYaw, player.yaw, 2f * dt);
             UpdateCamera(rdt);
             UpdateArrow(); UpdateRings();
             crowd.Render(cam.transform.position, cam.transform.forward); traffic.Render(cam.transform.position); props.Render(cam.transform.position, crowd.Clock);
+            if (state != GameState.Menu) pickups.Render(cam.transform.position);
             float lean = Mathf.Clamp(player.speedNow * 1.6f, 0, 18f);
-            playerHr.Add(new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y), player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.15f, lean, Mathf.Clamp(1f + sq + (player.dashT > 0 ? 0.1f : 0f), 0.6f, 1.4f));
+            playerHr.Add(pw, player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.15f, lean, Mathf.Clamp(1f + sq + (player.dashT > 0 ? 0.1f : 0f), 0.6f, 1.4f));
+            cosm.DrawHat(Store.D.hat, playerHr.LastHead);
+            cosm.UpdateTrail(Store.D.trail, pw, state == GameState.Playing && player.speedNow > 1.5f);
+            if (rival != null && state != GameState.Menu) rivalHr.Add(new Vector3(rival.pos.x, Heightfield.Current.Height(rival.pos.x, rival.pos.y) + rival.lift, rival.pos.y), rival.yaw, rival.phase, 1f, 0, 1.2f, 14f);
+            if (ghostShown && state != GameState.Menu) ghostHr.Add(new Vector3(ghost.pos.x, Heightfield.Current.Height(ghost.pos.x, ghost.pos.y) + ghost.lift, ghost.pos.y), ghost.yaw, ghost.phase, 1f, 0, 1.12f, 12f);
             maxLift = Mathf.Max(maxLift, player.lift);
-            crowdHr.Flush(); playerHr.Flush();
+            crowdHr.Flush(); playerHr.Flush(); rivalHr.Flush(); if (ghostHr != null) ghostHr.Flush();
             beam.transform.Rotate(0, 60 * dt, 0);
 
-            if (state == GameState.Finished && shotDir != null && !finShot2 && stateT > 2.3f) { finShot2 = true; Shot("finish2"); }
-            if (menuShot && state == GameState.Menu && Time.timeSinceLevelLoad > 3f) { Shot("menu"); menuShot = false; menuQuitAt = Time.timeSinceLevelLoad + 1.5f; }
+            if ((state == GameState.Finished || state == GameState.Failed) && shotDir != null && !finShot2 && stateT > 2.3f) { finShot2 = true; Shot("finish2"); if (demoShot) menuQuitAt = Time.timeSinceLevelLoad + 1.2f; }
+            if (menuShot && state == GameState.Menu && Time.timeSinceLevelLoad > 3f) { Shot("menu" + (panelArg != "" ? "_" + panelArg : "")); menuShot = false; menuQuitAt = Time.timeSinceLevelLoad + 1.5f; }
             if (menuQuitAt > 0f && Time.timeSinceLevelLoad > menuQuitAt) Application.Quit();
             if (shotTag != null && Time.unscaledTime >= shotAt) { Shot(shotTag); shotTag = null; }
-            if (shotDir != null && state != GameState.Menu && !fxTest)
+            if (shotDir != null && state != GameState.Menu && !fxTest && !demoShot)
             {
                 nextShot -= dt; if (nextShot <= 0) { nextShot = 9f; Shot("t" + shotNo.ToString("D2")); shotNo++; }
             }
-            if (autoplay && (state == GameState.Finished && stateT > 2.9f || Time.timeSinceLevelLoad > quitAfter)) Finish();
+            if (autoplay && ((state == GameState.Finished || state == GameState.Failed) && stateT > 2.9f || Time.timeSinceLevelLoad > quitAfter)) Finish();
         }
 
         void Shot(string tag)
@@ -327,21 +360,28 @@ namespace ShibuyaRush
             float p95 = n > 0 ? frameMs[Mathf.Min(n - 1, (int)(n * 0.95f))] : 0, worst = n > 0 ? frameMs[n - 1] : 0;
             var sb = new StringBuilder();
             sb.Append($"{{\"dest\":\"{goalName}\",\"finished\":{(state == GameState.Finished ? "true" : "false")},\"time\":{raceT:F2},");
-            sb.Append($"\"frames\":{n},\"avgMs\":{avg:F2},\"avgFps\":{(avg > 0 ? 1000f / avg : 0):F1},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"crowd\":{crowd.Count},\"trips\":{crowd.Trips},\"waitingEnd\":{crowd.Waiting},\"cars\":{traffic.Count},\"carsStopped\":{traffic.Stopped},\"carHits\":{hits},\"onDeck\":{crowd.OnDeck},\"maxPlayerLift\":{maxLift:F1},\"bumps\":{player.bumps},\"plowed\":{player.plowed},\"buildings\":{city.BuildingCount}}}");
+            sb.Append($"\"frames\":{n},\"avgMs\":{avg:F2},\"avgFps\":{(avg > 0 ? 1000f / avg : 0):F1},\"p95Ms\":{p95:F2},\"worstMs\":{worst:F2},\"crowd\":{crowd.Count},\"trips\":{crowd.Trips},\"waitingEnd\":{crowd.Waiting},\"cars\":{traffic.Count},\"carsStopped\":{traffic.Stopped},\"carHits\":{hits},\"onDeck\":{crowd.OnDeck},\"maxPlayerLift\":{maxLift:F1},\"bumps\":{player.bumps},\"plowed\":{player.plowed},\"buildings\":{city.BuildingCount},\"level\":{(spec != null ? spec.number : 0)},\"pathLen\":{(spec != null ? spec.pathLen : 0):F0},\"limit\":{(spec != null ? spec.limit : 0):F0},\"coins\":{runCoins},\"coinsTotal\":{pickups.CoinsTotal},\"stars\":{res.stars},\"reward\":{res.total},\"state\":\"{state}\"}}");
             if (shotDir != null) File.WriteAllText(Path.Combine(shotDir, "result.json"), sb.ToString());
             Debug.Log("[Perf] " + sb);
         }
 
+        Rect camRectWant = new Rect(0, 0, 1, 1);
+
         void UpdateCamera(float dt)
         {
             var p = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
+            bool shop = state == GameState.Menu && panel == UiPanel.Shop;
+            var wantRect = shop ? (L.portrait ? new Rect(0, 0.54f, 1, 0.46f) : new Rect(0, 0, 0.42f, 1)) : new Rect(0, 0, 1, 1);
+            if (wantRect != camRectWant) { camRectWant = wantRect; cam.rect = wantRect; }
             float y = camYaw * Mathf.Deg2Rad; var back = new Vector3(-Mathf.Sin(y), 0, -Mathf.Cos(y));
             float narrow = Screen.width < Screen.height ? 1.45f : 1f;   // 縦画面は横幅が狭いので、引いて高くする
-            var want = p + back * camBack * narrow + Vector3.up * camUp * (narrow > 1f ? 1.35f : 1f);
-            cam.transform.position = Vector3.Lerp(cam.transform.position, want, 1f - Mathf.Exp(-14f * dt)) + (fx != null ? fx.ShakeOffset : Vector3.zero);
-            cam.fieldOfView = (Screen.width < Screen.height ? 76f : 62f) + Mathf.Min(8f, player.speedNow * 0.6f) + (fx != null ? fx.FovAdd : 0f);
-            cam.transform.rotation = Quaternion.LookRotation((p + Vector3.up * 1.3f + new Vector3(Mathf.Sin(y), 0, Mathf.Cos(y)) * 2f) - cam.transform.position) * Quaternion.AngleAxis(roll, Vector3.forward);
+            var want = shop ? p + back * 3.6f + Vector3.up * 1.7f : p + back * camBack * narrow + Vector3.up * camUp * (narrow > 1f ? 1.35f : 1f);
+            cam.transform.position = Vector3.Lerp(cam.transform.position, want, 1f - Exp14(dt)) + (fx != null ? fx.ShakeOffset : Vector3.zero);
+            cam.fieldOfView = shop ? 40f : (Screen.width < Screen.height ? 76f : 62f) + Mathf.Min(8f, player.speedNow * 0.6f) + (fx != null ? fx.FovAdd : 0f);
+            var look = shop ? p + Vector3.up * 1.0f : p + Vector3.up * 1.3f + new Vector3(Mathf.Sin(y), 0, Mathf.Cos(y)) * 2f;
+            cam.transform.rotation = Quaternion.LookRotation(look - cam.transform.position) * Quaternion.AngleAxis(roll, Vector3.forward);
             miniCam.transform.position = new Vector3(player.pos.x, 300, player.pos.y);
         }
+        static float Exp14(float dt) => Mathf.Exp(-14f * dt);
     }
 }

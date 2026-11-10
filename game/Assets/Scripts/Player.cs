@@ -18,6 +18,10 @@ namespace ShibuyaRush
         public float dashCd, slipCd, shoveCd;                        // クールダウン残り秒
         public bool evDash, evSlip, evShove, evBump, evBump2;                 // 発動・衝突の通知(GameManagerが読んで消す)
         public int bumps, plowed, shoved; public Vector2 bumpDir;
+        // アップグレードと一時効果
+        public float speedMul = 1f, dashCdMul = 1f, slipCdMul = 1f, shoveCdMul = 1f, shoveRange = 1f, shieldT;
+        public int skillUses;
+        public float DashCd => DashCool * dashCdMul; public float SlipCd => SlipCool * slipCdMul; public float ShoveCd => ShoveCool * shoveCdMul;
         public bool Slipping => slipT > 0f;
         readonly CityBuilder city; readonly Crowd crowd; readonly PedGraph graph; readonly List<int> hits = new List<int>();
         Vector2 vel; float bumpCd;
@@ -29,13 +33,14 @@ namespace ShibuyaRush
             dashCd = Mathf.Max(0, dashCd - dt); slipCd = Mathf.Max(0, slipCd - dt); shoveCd = Mathf.Max(0, shoveCd - dt);
             dashT = Mathf.Max(0, dashT - dt); slipT = Mathf.Max(0, slipT - dt); shoveFx = Mathf.Max(0, shoveFx - dt);
             stagger = Mathf.Max(0, stagger - dt); bumpCd = Mathf.Max(0, bumpCd - dt);
-            if (dash && dashCd <= 0) { dashT = DashDur; dashCd = DashCool; evDash = true; }
-            if (slip && slipCd <= 0) { slipT = SlipDur; slipCd = SlipCool; evSlip = true; }
-            if (shove && shoveCd <= 0) { shoveCd = ShoveCool; shoveFx = 0.35f; DoShove(wish); evShove = true; }
+            shieldT = Mathf.Max(0, shieldT - dt);
+            if (dash && dashCd <= 0) { dashT = DashDur; dashCd = DashCd; evDash = true; skillUses++; }
+            if (slip && slipCd <= 0) { slipT = SlipDur; slipCd = SlipCd; evSlip = true; skillUses++; }
+            if (shove && shoveCd <= 0) { shoveCd = ShoveCd; shoveFx = 0.35f; DoShove(wish); evShove = true; skillUses++; }
 
             wish = Vector2.ClampMagnitude(wish, 1f);
             if (stagger > 0f) wish *= 0.3f;
-            float target = (dashT > 0 ? DashSpeed : WalkSpeed) * (Slipping ? 1.25f : 1f);
+            float target = (dashT > 0 ? DashSpeed : WalkSpeed) * (Slipping ? 1.25f : 1f) * speedMul;
             var want = wish * target;
             vel = Vector2.Lerp(vel, want, 1f - Mathf.Exp(-(stagger > 0f ? 4f : 10f) * dt));
             Move(vel * dt);
@@ -71,7 +76,7 @@ namespace ShibuyaRush
                 float closing = Vector2.Dot(vel, -n);
                 if (closing > 0f) vel += n * closing * 1.35f;                    // 進行方向の速度を打ち消し、少し跳ね返る
                 crowd.Shift(i, -n * overlap * 0.15f);
-                if (closing > 2.4f && bumpCd <= 0f)
+                if (closing > 2.4f && bumpCd <= 0f && shieldT <= 0f)
                 {   // 勢いよくぶつかった: よろける
                     stagger = 0.32f; bumpCd = 0.3f; vel += n * 2.5f; crowd.Push(i, -n * 1.6f);
                     bumps++; evBump = true; bumpDir = -n;
@@ -79,6 +84,7 @@ namespace ShibuyaRush
             }
         }
 
+        public void ResetState() { dashCd = slipCd = shoveCd = 0; dashT = slipT = shoveFx = stagger = shieldT = 0; vel = Vector2.zero; speedNow = 0; bumpCd = 0; }
         public void Knock(Vector2 v) { vel = v; stagger = Mathf.Max(stagger, 0.4f); }
         public void Shove(Vector2 d) { pos += d; }
 
@@ -98,7 +104,7 @@ namespace ShibuyaRush
         void DoShove(Vector2 wish)
         {
             var fwd = wish.sqrMagnitude > 0.01f ? wish.normalized : new Vector2(Mathf.Sin(yaw * Mathf.Deg2Rad), Mathf.Cos(yaw * Mathf.Deg2Rad));
-            crowd.Query(pos, 6f, hits);
+            crowd.Query(pos, 6f * shoveRange, hits);
             foreach (int i in hits)
             {
                 if (Mathf.Abs(crowd.LiftOf(i) - lift) > 1.5f) continue;

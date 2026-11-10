@@ -35,11 +35,14 @@ namespace ShibuyaRush
             dash = slip = shove = false; camDelta = 0f; manualCamT = Mathf.Max(0f, manualCamT - dt);
             // --- キーボード ---
             var kb = new Vector2((Input.GetKey(KeyCode.D) ? 1 : 0) - (Input.GetKey(KeyCode.A) ? 1 : 0), (Input.GetKey(KeyCode.W) ? 1 : 0) - (Input.GetKey(KeyCode.S) ? 1 : 0));
+            // 矢印キーだけでも全操作できる: ↑↓←→で移動、Z/X/Cでスキル、Q/Wではなく ,/. で視点
             if (Input.GetKey(KeyCode.UpArrow)) kb.y += 1f; if (Input.GetKey(KeyCode.DownArrow)) kb.y -= 1f;
-            if (Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift)) { dash = true; usingTouch = false; }
-            if (Input.GetKeyDown(KeyCode.Space)) { slip = true; usingTouch = false; }
-            if (Input.GetKeyDown(KeyCode.E)) { shove = true; usingTouch = false; }
-            float cam = (Input.GetKey(KeyCode.RightArrow) ? 1f : 0f) - (Input.GetKey(KeyCode.LeftArrow) ? 1f : 0f);
+            if (Input.GetKey(KeyCode.RightArrow)) kb.x += 1f; if (Input.GetKey(KeyCode.LeftArrow)) kb.x -= 1f;
+            kb = Vector2.ClampMagnitude(kb, 1f);
+            if (Input.GetKeyDown(KeyCode.LeftShift) || Input.GetKeyDown(KeyCode.RightShift) || Input.GetKeyDown(KeyCode.Z)) { dash = true; usingTouch = false; }
+            if (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.X)) { slip = true; usingTouch = false; }
+            if (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.C)) { shove = true; usingTouch = false; }
+            float cam = (Input.GetKey(KeyCode.Period) || Input.GetKey(KeyCode.Q) ? 1f : 0f) - (Input.GetKey(KeyCode.Comma) || Input.GetKey(KeyCode.Tab) ? 1f : 0f);
             if (cam != 0f) { camDelta += cam * 120f * dt; manualCamT = 1.2f; }
             if (kb.sqrMagnitude > 0.01f) usingTouch = false;
             // --- ポインタ(タッチ / マウス) ---

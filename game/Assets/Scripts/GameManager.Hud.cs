@@ -13,10 +13,10 @@ namespace ShibuyaRush
         {
             public float S, W, H, sR; public bool portrait, touch;
             public float x0, x1, y0, y1;                      // セーフエリア
-            public Rect timer, chip, minimap; public Vector2 arrow, combo, sDash, sSlip, sShove;
+            public Rect timer, chip, minimap, pause, coinPill; public Vector2 arrow, combo, sDash, sSlip, sShove;
         }
         UiLayout L;
-        GUIStyle big, mid, small, box, round, huge; Texture2D circleTex, gradTex, iconBolt, iconGhost, iconBlast; Material ringMat;
+        GUIStyle big, mid, small, box, round, huge; Texture2D shadeTex, circleTex, gradTex, iconBolt, iconGhost, iconBlast; Material ringMat;
         class FloatText { public string s; public Vector3 w; public Color c; public float age, life, size; }
         readonly List<FloatText> pops = new List<FloatText>();
         float combo, comboT, comboPop; int lastHits, comboBonus, lastCount = -1; float par3, par2, goalDist;
@@ -33,6 +33,7 @@ namespace ShibuyaRush
             L.timer = new Rect(L.x0 + m, L.y0 + m, po ? 200 : 250, po ? 60 : 76);
             L.chip = new Rect(L.x0 + m, L.timer.yMax + 8, po ? 240 : 300, 32);
             float mm = touchMode ? (po ? 118 : 150) : 220; L.minimap = new Rect(L.x1 - m - mm, L.y0 + m, mm, mm);
+            L.pause = new Rect(L.timer.xMax + 8, L.timer.y + 6, 50, 50); L.coinPill = new Rect(L.x0 + m, L.chip.yMax + 8, 150, 36);
             L.arrow = new Vector2(L.W / 2f, po ? L.y0 + m + Mathf.Max(mm, 110f) + 62f : L.y0 + 92f);
             if (touchMode)
             {
@@ -66,6 +67,8 @@ namespace ShibuyaRush
             var cs = new Texture2D(128, 128, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Clamp };
             for (int y = 0; y < 128; y++) for (int x = 0; x < 128; x++) { float r = Mathf.Sqrt(((x + .5f) / 128 - .5f) * ((x + .5f) / 128 - .5f) + ((y + .5f) / 128 - .5f) * ((y + .5f) / 128 - .5f)); cs.SetPixel(x, y, new Color(1, 1, 1, Mathf.Clamp01((0.5f - r) * 128f * 0.5f))); }
             cs.Apply(); circleTex = cs;
+            shadeTex = new Texture2D(1, 64, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            for (int y = 0; y < 64; y++) shadeTex.SetPixel(0, y, new Color(0.08f, 0.05f, 0.2f, Mathf.Pow(y / 63f, 1.6f) * 0.7f)); shadeTex.Apply();
             gradTex = new Texture2D(1, 64, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
             for (int y = 0; y < 64; y++) gradTex.SetPixel(0, y, Color.Lerp(new Color(.42f, .5f, 1f, .93f), new Color(1f, .62f, .45f, .93f), y / 63f));
             gradTex.Apply();
@@ -128,67 +131,52 @@ namespace ShibuyaRush
         {
             if (data == null) return; InitStyles(); ComputeLayout();
             GUI.matrix = Matrix4x4.Scale(new Vector3(L.S, L.S, 1)); float W = L.W, H = L.H;
-            if (state == GameState.Menu) { DrawMenu(); return; }
-            DrawOverlays(W, H);
-            DrawTopLeft();
-            DrawGoalArrow(W, H, (player.pos - goal).magnitude);
-            DrawMinimap();
-            DrawCombo();
-            DrawSkills();
-            DrawJoystick();
-            DrawPops(L.S);
-            if (hitFlash > 0) Label(new Rect(0, H / 2 + 50, W, 60), "車に接触!  +3秒", new GUIStyle(big) { fontSize = L.portrait ? 40 : 54 }, new Color(1, 0.35f, 0.3f));
-            DrawBanner(W, H);
-            if (state == GameState.Countdown) DrawCountdown(W, H);
-            if (state == GameState.Finished) DrawFinish(W, H);
-        }
-
-        void DrawMenu()
-        {
-            float W = L.W, H = L.H; bool po = L.portrait;
-            GUI.DrawTexture(new Rect(0, 0, W, H), gradTex, ScaleMode.StretchToFill, true);
-            float t = Time.unscaledTime; string title = "SHIBUYA RUSH"; int ts = po ? 54 : (touchMode ? 64 : 78);
-            var st = new GUIStyle(huge) { fontSize = ts }; float total = 0f; var wd = new float[title.Length];
-            for (int i = 0; i < title.Length; i++) { wd[i] = title[i] == ' ' ? 24f : st.CalcSize(new GUIContent(title[i].ToString())).x + 3f; total += wd[i]; }
-            float xc = W / 2 - total / 2, ty = L.y0 + (po ? 40f : 20f);
-            for (int i = 0; i < title.Length; i++)
+            PreUI();
+            if (state == GameState.Menu) DrawHome();
+            else
             {
-                if (title[i] != ' ') { float dy = Mathf.Sin(t * 3f + i * 0.55f) * 6f; Label(new Rect(xc, ty + dy, wd[i], ts * 1.25f), title[i].ToString(), st, Color.Lerp(Color.white, Candy[i % Candy.Length], 0.5f)); }
-                xc += wd[i];
+                DrawOverlays(W, H);
+                DrawTopLeft();
+                DrawGoalArrow(W, H, (player.pos - goal).magnitude);
+                DrawMinimap();
+                DrawProgress(W, H);
+                DrawCombo();
+                DrawSkills();
+                DrawJoystick();
+                DrawPops(L.S);
+                DrawRivalTag();
+                DrawHint();
+                if (hitFlash > 0) Label(new Rect(0, H / 2 + 50, W, 60), "車に接触!  +3秒", new GUIStyle(big) { fontSize = L.portrait ? 40 : 54 }, new Color(1, 0.35f, 0.3f));
+                DrawBanner(W, H);
+                if (state == GameState.Countdown) DrawCountdown(W, H);
+                if (state == GameState.Playing && Btn(L.pause, "", new Color(.25f, .22f, .5f, .85f), 20, true, false)) Pause();
+                if (state == GameState.Playing) DrawPauseGlyph(L.pause);
+                if (state == GameState.Finished) DrawResult(W, H);
+                if (state == GameState.Failed) DrawFail(W, H);
+                if (state == GameState.Paused) DrawPause(W, H);
             }
-            float sy = ty + ts * 1.25f;
-            Label(new Rect(0, sy, W, 30), "ハチ公前スタート。大混雑の渋谷を、最速で目的地へ!", new GUIStyle(small) { alignment = TextAnchor.MiddleCenter, fontSize = po ? 15 : 19 }, Color.white);
-            int n = Mathf.Min(data.pois.Length, 6); float ch = po ? 84 : (touchMode ? 56 : 66), gap = po ? 14 : (touchMode ? 7 : 10), cw = Mathf.Min(620f, W - 32f);
-            float listTop = sy + 44f, avail = (L.y1 - 56f) - listTop; float need = n * (ch + gap); if (need > avail) { float k = avail / need; ch *= k; gap *= k; }
-            for (int i = 0; i < n; i++)
-            {
-                var r = new Rect(W / 2 - cw / 2, listTop + i * (ch + gap), cw, ch);
-                bool hover = r.Contains(Event.current.mousePosition) && !touchMode; float k = hover ? 1.03f : 1f;
-                var rr = new Rect(r.center.x - r.width * k / 2, r.center.y - r.height * k / 2, r.width * k, r.height * k);
-                var col = Candy[i % Candy.Length]; Panel(rr, hover ? Color.Lerp(col, Color.white, 0.25f) : col, 5f);
-                float bd = rr.height - 14f; Disc(new Rect(rr.x + 10, rr.y + 7, bd, bd), new Color(1, 1, 1, 0.95f));
-                Label(new Rect(rr.x + 10, rr.y + 7, bd, bd), (i + 1).ToString(), new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = (int)(bd * 0.5f) }, col);
-                var d = new Vector2(data.pois[i].x, data.pois[i].z).magnitude;
-                Label(new Rect(rr.x + bd + 22, rr.y + 4, rr.width - bd - (po ? 150 : 190), rr.height * 0.55f), data.pois[i].name, new GUIStyle(mid) { fontSize = (int)(rr.height * 0.36f) }, Color.white);
-                Label(new Rect(rr.x + bd + 22, rr.y + rr.height * 0.54f, 200, rr.height * 0.4f), $"約{d:F0}m", new GUIStyle(small) { fontSize = (int)(rr.height * 0.27f) }, new Color(1, 1, 1, 0.92f));
-                int stars = PlayerPrefs.GetInt("stars_" + data.pois[i].id, 0); float best = PlayerPrefs.GetFloat("best_" + data.pois[i].id, 9999f);
-                string ss = ""; for (int k2 = 0; k2 < 3; k2++) ss += k2 < stars ? "★" : "☆";
-                Label(new Rect(rr.xMax - 176, rr.y + 2, 166, rr.height * 0.6f), ss, new GUIStyle(mid) { alignment = TextAnchor.MiddleRight, fontSize = (int)(rr.height * (po ? 0.34f : 0.46f)) }, stars > 0 ? new Color(1f, .93f, .35f) : new Color(1, 1, 1, 0.65f));
-                if (best < 9000f) Label(new Rect(rr.xMax - 176, rr.y + rr.height * 0.6f, 166, rr.height * 0.36f), $"BEST {best:F1}s", new GUIStyle(small) { alignment = TextAnchor.MiddleRight, fontSize = (int)(rr.height * 0.26f) }, Color.white);
-                if (GUI.Button(r, GUIContent.none, GUIStyle.none)) StartRace(i);
-            }
-            string help = touchMode ? "画面をドラッグして走る / 右下のボタンでスキル" : "ドラッグ・WASDで移動   Shift ダッシュ   Space すり抜け   E かき分け   (1〜6キーでも選べます)";
-            Label(new Rect(0, L.y1 - 46, W, 28), help, new GUIStyle(small) { alignment = TextAnchor.MiddleCenter, fontSize = po ? 13 : 16 }, new Color(1, 1, 1, 0.95f));
+            DrawToasts(W); DrawAd(W, H);
+            PostUI();
         }
 
         void DrawTopLeft()
         {
             bool frozen = fx.ClockFrozen; var r = L.timer;
             Panel(r, frozen ? new Color(.2f, .55f, .95f, .92f) : new Color(.18f, .17f, .36f, .82f), 4f);
-            Label(new Rect(r.x + 10, r.y, r.width - 18, r.height), (frozen ? "❚❚ " : "") + $"{raceT:F2}", new GUIStyle(huge) { fontSize = (int)(r.height * 0.66f), alignment = TextAnchor.MiddleLeft }, Color.white);
-            Label(new Rect(r.xMax - 40, r.y + r.height * 0.42f, 36, r.height * 0.5f), "秒", small, new Color(1, 1, 1, 0.85f));
+            bool lim = !spec.free; float shownT = lim ? Mathf.Max(0f, Remaining) : raceT; bool urgent = lim && shownT < 10f && state == GameState.Playing;
+            var tc = urgent ? Color.Lerp(Color.white, new Color(1f, .3f, .3f), 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 12f)) : Color.white;
+            Label(new Rect(r.x + 10, r.y, r.width - 18, r.height), (frozen ? "❚❚ " : "") + (lim ? $"{shownT:F1}" : $"{shownT:F2}"), new GUIStyle(huge) { fontSize = (int)(r.height * 0.66f), alignment = TextAnchor.MiddleLeft }, tc);
+            Label(new Rect(r.xMax - 40, r.y + r.height * 0.42f, 36, r.height * 0.5f), lim ? "のこり" : "秒", new GUIStyle(small) { fontSize = lim ? 12 : 18 }, new Color(1, 1, 1, 0.85f));
             Panel(L.chip, new Color(1f, .78f, .2f, .94f), 3f);
             Label(new Rect(L.chip.x + 12, L.chip.y, L.chip.width - 20, L.chip.height), "▶ " + goalName, new GUIStyle(small) { fontSize = 16 }, new Color(.25f, .15f, .05f));
+            // コインの数(取るたびにぽんと弾む)
+            float cp = 1f + 0.35f * Mathf.Exp(-(Time.unscaledTime - coinPulse) * 10f); var pr = L.coinPill; var mt = GUI.matrix; GUIUtility.ScaleAroundPivot(new Vector2(cp, cp), pr.center);
+            Panel(pr, new Color(.18f, .17f, .36f, .82f), 3f); CoinIcon(new Rect(pr.x + 6, pr.y + 5, 26, 26));
+            Label(new Rect(pr.x + 38, pr.y, pr.width - 44, pr.height), Fmt(runCoins * (spec.mod == 1 ? 2 : 1)), new GUIStyle(mid) { fontSize = 22 }, new Color(1f, .9f, .35f)); GUI.matrix = mt;
+            float py = pr.yMax + 6;
+            if (magnetT > 0f) { Chip(new Rect(pr.x, py, 150, 28), $"マグネット {magnetT:F0}", Pickups.PuColor[0]); py += 32; }
+            if (player.shieldT > 0f) { Chip(new Rect(pr.x, py, 150, 28), $"シールド {player.shieldT:F0}", new Color(.5f, .8f, .9f)); py += 32; }
+            if (spec.mod > 0) Chip(new Rect(pr.x, py, 150, 28), spec.modText, new Color(1f, .5f, .35f));
         }
 
         void DrawMinimap()
@@ -216,9 +204,9 @@ namespace ShibuyaRush
 
         void DrawSkills()
         {
-            Skill(L.sDash, "SHIFT", "ダッシュ", iconBolt, player.dashCd, Player.DashCool, player.dashT > 0, new Color(1f, .72f, .2f));
-            Skill(L.sSlip, "SPACE", "すり抜け", iconGhost, player.slipCd, Player.SlipCool, player.Slipping, new Color(.4f, .85f, 1f));
-            Skill(L.sShove, "E", "かき分け", iconBlast, player.shoveCd, Player.ShoveCool, player.shoveFx > 0, new Color(1f, .45f, .5f));
+            Skill(L.sDash, "Z", "ダッシュ", iconBolt, player.dashCd, player.DashCd, player.dashT > 0, new Color(1f, .72f, .2f));
+            Skill(L.sSlip, "X", "すり抜け", iconGhost, player.slipCd, player.SlipCd, player.Slipping, new Color(.4f, .85f, 1f));
+            Skill(L.sShove, "C", "かき分け", iconBlast, player.shoveCd, player.ShoveCd, player.shoveFx > 0, new Color(1f, .45f, .5f));
         }
 
         void Skill(Vector2 c, string key, string name, Texture2D icon, float cd, float total, bool active, Color col)
@@ -274,32 +262,6 @@ namespace ShibuyaRush
             float k = 1f + 1.2f * Mathf.Exp(-frac * 9f); var mat = GUI.matrix; var piv = new Vector2(W / 2, H / 2 - 40); GUIUtility.ScaleAroundPivot(new Vector2(k, k), piv);
             Label(new Rect(0, piv.y - 70, W, 140), n.ToString(), new GUIStyle(huge) { fontSize = 130 }, Candy[(3 - n) % Candy.Length]);
             GUI.matrix = mat;
-        }
-
-        void DrawFinish(float W, float H)
-        {
-            float pw = Mathf.Min(600f, W - 24f), ph = 400f; var p = new Rect(W / 2 - pw / 2, H / 2 - ph / 2 - 10, pw, ph); float t = stateT;
-            Panel(p, new Color(.2f, .18f, .42f, .96f), 8f);
-            float k = 1f + 0.5f * Mathf.Exp(-t * 8f); var mat = GUI.matrix; GUIUtility.ScaleAroundPivot(new Vector2(k, k), new Vector2(W / 2, p.y + 60));
-            Label(new Rect(p.x, p.y + 14, p.width, 90), "到着!", new GUIStyle(huge) { fontSize = 70 }, new Color(1, .9f, .3f)); GUI.matrix = mat;
-            Label(new Rect(p.x, p.y + 100, p.width, 36), goalName, new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter }, Color.white);
-            float shown = Mathf.Min(raceT, raceT * Mathf.Clamp01(t / 0.8f));
-            Label(new Rect(p.x, p.y + 132, p.width, 90), $"{shown:F2} 秒", new GUIStyle(huge) { fontSize = 66 }, Color.white);
-            for (int i = 0; i < 3; i++)
-            {
-                float st = 0.9f + i * 0.4f; bool on = i < starsEarned && t > st; float ks = on ? 1f + 1.0f * Mathf.Exp(-(t - st) * 9f) : 1f;
-                var mat2 = GUI.matrix; var pv = new Vector2(W / 2 + (i - 1) * 96, p.y + 270); GUIUtility.ScaleAroundPivot(new Vector2(ks, ks), pv);
-                Label(new Rect(pv.x - 50, pv.y - 45, 100, 90), on ? "★" : "☆", new GUIStyle(huge) { fontSize = 84 }, on ? new Color(1f, .88f, .2f) : new Color(1, 1, 1, 0.4f));
-                GUI.matrix = mat2;
-            }
-            if (resultNote != "") Label(new Rect(p.x, p.y + 318, p.width, 30), resultNote, new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter }, new Color(.5f, 1f, .6f));
-            // タップできるボタン(スマホ・マウス用)
-            var b1 = new Rect(p.x + 24, p.yMax - 64, p.width / 2 - 36, 48); var b2 = new Rect(p.center.x + 12, p.yMax - 64, p.width / 2 - 36, 48);
-            Panel(b1, Candy[2], 4f); Panel(b2, Candy[3], 4f);
-            Label(b1, touchMode ? "もう一度" : "もう一度 [R]", new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = 20 }, Color.white);
-            Label(b2, touchMode ? "目的地を選ぶ" : "目的地を選ぶ [M]", new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = 20 }, Color.white);
-            if (t > 1.0f && GUI.Button(b1, GUIContent.none, GUIStyle.none)) StartRace(poiIndex);
-            if (t > 1.0f && GUI.Button(b2, GUIContent.none, GUIStyle.none)) { state = GameState.Menu; beam.SetActive(false); player.pos = startPos; }
         }
 
         // ---------------- 演出・矢印 ----------------

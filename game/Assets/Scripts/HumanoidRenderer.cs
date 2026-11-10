@@ -12,6 +12,7 @@ namespace ShibuyaRush
         readonly List<Matrix4x4>[] torsoL, armL; readonly List<Matrix4x4> legL = new List<Matrix4x4>(), headL = new List<Matrix4x4>();
         readonly Matrix4x4[] buf = new Matrix4x4[1000];
         public int TintCount => tints.Length;
+        public Matrix4x4 LastHead;                                   // 直前に追加した人の頭の行列(ぼうし用)
 
         public HumanoidRenderer(Material[] tints, Material pants, Material skin)
         {
@@ -32,7 +33,7 @@ namespace ShibuyaRush
             float ang = s * 38f * swing;
             tint %= tints.Length;
             torsoL[tint].Add(root * Matrix4x4.TRS(new Vector3(0, 0.72f, 0), Quaternion.identity, Vector3.one));
-            headL.Add(root * Matrix4x4.TRS(new Vector3(0, 1.70f, 0), Quaternion.identity, Vector3.one));
+            LastHead = root * Matrix4x4.TRS(new Vector3(0, 1.70f, 0), Quaternion.identity, Vector3.one); headL.Add(LastHead);
             armL[tint].Add(root * Matrix4x4.TRS(new Vector3(-0.35f, 1.34f, 0), Quaternion.Euler(ang * 1.1f, 0, 4), Vector3.one));
             armL[tint].Add(root * Matrix4x4.TRS(new Vector3(0.35f, 1.34f, 0), Quaternion.Euler(-ang * 1.1f, 0, -4), Vector3.one));
             legL.Add(root * Matrix4x4.TRS(new Vector3(-0.14f, 0.78f, 0), Quaternion.Euler(-ang, 0, 0), Vector3.one));

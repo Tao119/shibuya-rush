@@ -164,6 +164,22 @@ namespace ShibuyaRush
             return false;
         }
 
+        /// <summary>走行中の車のすぐ脇(衝突はしていない)を通ったか。</summary>
+        public bool NearMiss(Vector2 p, float lift)
+        {
+            int cx = Mathf.FloorToInt(p.x / 8f), cz = Mathf.FloorToInt(p.y / 8f);
+            for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++)
+                if (cell.TryGetValue((cx + dx) * 7919 + (cz + dz), out var l))
+                    foreach (int j in l)
+                    {
+                        ref var k = ref c[j]; if (Mathf.Abs(k.lift - lift) > 1.5f || k.speed < 4f) continue;
+                        var rel = p - k.pos; float y = k.yaw * Mathf.Deg2Rad; var f = new Vector2(Mathf.Sin(y), Mathf.Cos(y)); var r = new Vector2(f.y, -f.x);
+                        float a = Mathf.Abs(Vector2.Dot(rel, f)), b = Mathf.Abs(Vector2.Dot(rel, r));
+                        if (a < 2.45f + 0.5f && b > 1.25f && b < 1.25f + 1.0f) return true;
+                    }
+            return false;
+        }
+
         /// <summary>点pが、位置carPos・向きyawDegの車(長さ4.2 x 幅1.8)に半径0.35mの余裕つきで重なるか。重なれば押し出し量。</summary>
         public static bool Overlap(Vector2 p, Vector2 carPos, float yawDeg, out Vector2 push)
         {

@@ -11,11 +11,35 @@ namespace ShibuyaRush
         const float Cell = 25f;
         readonly Dictionary<long, List<int>> grid = new Dictionary<long, List<int>>();
         readonly List<Vector2[]> footprints = new List<Vector2[]>();
+        readonly List<float> heights = new List<float>(); public float QueryLift;   // 建物の高さ。足元(QueryLift)が屋根より高ければ、その上を通れる
         readonly List<Vector4> boxes = new List<Vector4>(); // minx,minz,maxx,maxz
         public int BuildingCount => footprints.Count; public GameObject Root { get; private set; }
         public System.Func<float, float, bool> Exempt; // 建物の下をくぐる道など、通れる場所
 
         static long Key(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
+
+        readonly Dictionary<long, List<Vector3>> solidGrid = new Dictionary<long, List<Vector3>>();   // 柱・木・街灯など円で近似する障害物(x, z, 半径)
+
+        public void AddSolid(Vector2 p, float r)
+        {
+            long k = Key(Mathf.FloorToInt(p.x / 8f), Mathf.FloorToInt(p.y / 8f)); if (!solidGrid.TryGetValue(k, out var l)) solidGrid[k] = l = new List<Vector3>(); l.Add(new Vector3(p.x, p.y, r));
+        }
+
+        /// <summary>(x,z)にいる半径rの人を、障害物の外へ押し出すベクトル(ぶつかっていなければゼロ)。</summary>
+        public Vector2 SolidPush(float x, float z, float r)
+        {
+            Vector2 push = Vector2.zero; int cx = Mathf.FloorToInt(x / 8f), cz = Mathf.FloorToInt(z / 8f);
+            for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++)
+                if (solidGrid.TryGetValue(Key(cx + dx, cz + dz), out var l))
+                    foreach (var c in l) { var d = new Vector2(x - c.x, z - c.y); float m = d.magnitude, need = c.z + r; if (m < need) push += (m > 1e-3f ? d / m : Vector2.up) * (need - m); }
+            return push;
+        }
+
+        /// <summary>高架の柱に、半径rの円がぶつかるか(柱は一辺0.9mの角柱)。</summary>
+        public bool HitPillar(float x, float z, float r)
+        {
+            return SolidPush(x, z, r).sqrMagnitude > 0f;
+        }
 
         /// <summary>描かない(当たりも付けない)建物の番号。道が通っている建物は、道を優先して取り除く。</summary>
         public HashSet<int> Hidden = new HashSet<int>(); readonly List<int> footSrc = new List<int>();
@@ -28,7 +52,7 @@ namespace ShibuyaRush
                 var b = city.buildings[bi]; int n = b.p.Length / 2; if (n < 3) continue;
                 var poly = new Vector2[n]; for (int i = 0; i < n; i++) poly[i] = new Vector2(b.p[i * 2], b.p[i * 2 + 1]);
                 if (SignedArea(poly) < 0) System.Array.Reverse(poly);
-                Register(poly); footSrc.Add(bi);
+                Register(poly, b.h); footSrc.Add(bi);
             }
         }
 
@@ -44,8 +68,8 @@ namespace ShibuyaRush
         {
             var root = new GameObject("City"); Root = root;
             MakeGround(root.transform, ground);
+            MakeBuildings(root.transform, city, palette);   // 柱が建物の中に立たないよう、建物を先に登録する
             MakeRoads(root.transform, city, road, walkway);
-            MakeBuildings(root.transform, city, palette);
             if (marking != null) MakeMarkings(root.transform, city, marking);
             return root;
         }
@@ -107,7 +131,7 @@ namespace ShibuyaRush
                         if (r.lift > 0f && run + L * k / pieces >= nextPillar)
                         {   // 高架の下に柱
                             nextPillar += 18f; float lf = CityData.Lift(r, run + L * k / pieces, Ltot);
-                            if (lf > 2f) AddPillar(pv, pi, a, Heightfield.Current.Height(a.x, a.y), lf);
+                            if (lf > 2f && !InsideBuilding(a.x, a.y)) { AddPillar(pv, pi, a, Heightfield.Current.Height(a.x, a.y), lf); AddSolid(a, 0.6f); }
                         }
                     }
                     run += L;
@@ -152,6 +176,39 @@ namespace ShibuyaRush
             }
         }
 
+        /// <summary>階段の辺に、高さの違う2点をつなぐ斜めの床を描く(これまで階段は見えない斜面で、足が空中や床の中に入っていた)。</summary>
+        public void MakeStairs(PedGraph g, Material mat)
+        {
+            var v = new List<Vector3>(); var idx = new List<int>();
+            foreach (int id in g.stairEdges)
+            {
+                var e = g.edges[id]; if (e.width <= 0f) continue; var a = g.nodes[e.a]; var b = g.nodes[e.b]; var nn = new Vector2(-e.dir.y, e.dir.x) * (Mathf.Max(e.width, 2.5f) * 0.5f); int s = v.Count;
+                v.Add(Pt(a - nn, e.lA + 0.05f)); v.Add(Pt(a + nn, e.lA + 0.05f)); v.Add(Pt(b + nn, e.lB + 0.05f)); v.Add(Pt(b - nn, e.lB + 0.05f));
+                idx.Add(s); idx.Add(s + 1); idx.Add(s + 2); idx.Add(s); idx.Add(s + 2); idx.Add(s + 3);
+            }
+            if (v.Count > 0) MeshObject(Root.transform, "Stairs", ToMesh(v, idx), mat);
+        }
+
+        /// <summary>プレイヤーと人が歩ける範囲(道とその両側の空き地)を、茶色の路面として敷く。この上だけ走れて、緑の地面には入れない。</summary>
+        public void MakeWalkable(PedGraph g, Material mat)
+        {
+            if (g.freeL == null) return; var v = new List<Vector3>(); var idx = new List<int>(); const float y = 0.008f;
+            for (int id = 0; id < g.edges.Count; id++)
+            {
+                var e = g.edges[id]; if (e.width <= 0f || !g.inMain[e.a] || e.lA > 0.05f || e.lB > 0.05f) continue;
+                var a0 = g.nodes[e.a]; var b0 = g.nodes[e.b]; var nn = new Vector2(-e.dir.y, e.dir.x); float fl = g.freeL[id], fr = g.freeR[id];
+                int pieces = Mathf.Max(1, Mathf.CeilToInt(e.len / 4f));
+                for (int k = 0; k < pieces; k++)
+                {
+                    var a = Vector2.Lerp(a0, b0, (float)k / pieces); var b = Vector2.Lerp(a0, b0, (float)(k + 1) / pieces); int s = v.Count;
+                    v.Add(Pt(a - nn * fr, y)); v.Add(Pt(a + nn * fl, y)); v.Add(Pt(b + nn * fl, y)); v.Add(Pt(b - nn * fr, y));
+                    idx.Add(s); idx.Add(s + 1); idx.Add(s + 2); idx.Add(s); idx.Add(s + 2); idx.Add(s + 3);
+                }
+                float rc = (fl + fr) * 0.5f; AddDisc(v, idx, a0, rc, y); AddDisc(v, idx, b0, rc, y);
+            }
+            MeshObject(Root.transform, "WalkableArea", ToMesh(v, idx), mat);
+        }
+
         static Vector3 Pt(Vector2 p, float y) => new Vector3(p.x, Heightfield.Current.Height(p.x, p.y) + y, p.y);
 
         static void AddDisc(List<Vector3> v, List<int> idx, Vector2 c, float r, float y)
@@ -188,7 +245,7 @@ namespace ShibuyaRush
                 if (SignedArea(poly) < 0) System.Array.Reverse(poly); // 反時計回りに揃える
                 int pal = Mathf.Abs((int)(poly[0].x * 7.13f + poly[0].y * 3.77f)) % palette.Length;
                 Extrude(poly, b.h, verts[pal], tris[pal], uvs[pal]);
-                Register(poly);
+                Register(poly, b.h);
                 bi++;
             }
             for (int i = 0; i < palette.Length; i++)
@@ -264,8 +321,9 @@ namespace ShibuyaRush
         }
 
         // ---- 衝突判定(建物の中に入れない) ----
-        void Register(Vector2[] poly)
+        void Register(Vector2[] poly, float h = 3f)
         {
+            heights.Add(h);
             int id = footprints.Count; footprints.Add(poly);
             float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
             foreach (var q in poly) { x0 = Mathf.Min(x0, q.x); z0 = Mathf.Min(z0, q.y); x1 = Mathf.Max(x1, q.x); z1 = Mathf.Max(z1, q.y); }
@@ -312,6 +370,7 @@ namespace ShibuyaRush
             if (!grid.TryGetValue(Key(Mathf.FloorToInt(x / Cell), Mathf.FloorToInt(z / Cell)), out var l)) return false;
             foreach (int id in l)
             {
+                if (QueryLift > heights[id] - 0.3f) continue;   // 屋根より高い所(高架の上)にいるなら、その建物には当たらない
                 var bx = boxes[id];
                 if (x < bx.x - r || x > bx.z + r || z < bx.y - r || z > bx.w + r) continue;
                 var p = footprints[id]; bool hit = Inside(p, x, z);

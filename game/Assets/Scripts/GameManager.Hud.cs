@@ -185,6 +185,7 @@ namespace ShibuyaRush
         void DrawMinimap()
         {
             var mr = L.minimap; float full = 220f, k = mr.width / full;
+            Chip(new Rect(mr.x - 5, mr.yMax + 10, mr.width + 10, 30), placeName, new Color(.14f, .12f, .32f));
             Panel(new Rect(mr.x - 5, mr.y - 5, mr.width + 10, mr.height + 10), new Color(1, 1, 1, 0.9f), 4f);
             GUI.DrawTexture(mr, miniRt, ScaleMode.StretchToFill, false);
             Disc(new Rect(mr.center.x - 6 * k - 1, mr.center.y - 6 * k - 1, 12 * k + 2, 12 * k + 2), new Color(1f, .45f, .1f));
@@ -305,7 +306,7 @@ namespace ShibuyaRush
         /// <summary>画面上部の大きな矢印: カメラの向きに対する目的地の方角。</summary>
         void DrawGoalArrow(float W, float H, float dist)
         {
-            var to = goal - player.pos; float bearing = Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg;
+            var to = RouteAim(out float remainLen) - player.pos; dist = remainLen; float bearing = Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg;
             float rel = Mathf.DeltaAngle(camYaw, bearing);
             var ctr = L.arrow; var mat = GUI.matrix; var old = GUI.color;
             float pulse = 1f + 0.06f * Mathf.Sin(Time.unscaledTime * 6f); float sz = (touchMode ? 80f : 96f) * pulse;
@@ -335,7 +336,7 @@ namespace ShibuyaRush
         {
             bool on = state == GameState.Countdown || state == GameState.Playing;
             arrow3d.SetActive(on); if (!on) return;
-            var to = goal - player.pos; var dir = to.sqrMagnitude > 1e-4f ? to.normalized : Vector2.up;
+            var to = RouteAim(out _) - player.pos; var dir = to.sqrMagnitude > 1e-4f ? to.normalized : Vector2.up;
             var p = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
             arrow3d.transform.position = p + new Vector3(dir.x, 0, dir.y) * 1.9f + Vector3.up * (2.5f + 0.12f * Mathf.Sin(Time.unscaledTime * 5f));
             arrow3d.transform.rotation = Quaternion.LookRotation(new Vector3(dir.x, 0, dir.y));

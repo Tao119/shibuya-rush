@@ -91,7 +91,7 @@ public static class ProjectSetup
     {
         Directory.CreateDirectory(Mats); Directory.CreateDirectory("Assets/Scenes");
         SetupUrp(); PlayerSettings.colorSpace = ColorSpace.Linear;
-        Mat("Ground", new Color(0.62f, 0.78f, 0.60f)); Mat("Road", new Color(0.36f, 0.38f, 0.48f), 0.12f).SetFloat("_Cull", 0f); Mat("Walkway", new Color(0.93f, 0.84f, 0.72f)).SetFloat("_Cull", 0f);
+        Mat("Ground", new Color(0.40f, 0.64f, 0.36f)); Mat("Road", new Color(0.19f, 0.20f, 0.24f), 0.12f).SetFloat("_Cull", 0f); Mat("Walkway", new Color(0.76f, 0.57f, 0.38f)).SetFloat("_Cull", 0f);
         Mat("Marking", new Color(0.98f, 0.98f, 0.96f), 0.1f).SetFloat("_Cull", 0f);
         Color[] b = { new Color(1f,.86f,.78f), new Color(.78f,.95f,.86f), new Color(.76f,.87f,1f), new Color(.87f,.80f,1f),
                       new Color(1f,.95f,.74f), new Color(1f,.80f,.88f), new Color(.97f,.93f,.86f), new Color(.74f,.88f,.90f) };
@@ -138,11 +138,30 @@ public static class ProjectSetup
         EditorSceneManager.SaveScene(scene, "Assets/Scenes/Main.unity");
         EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene("Assets/Scenes/Main.unity", true) };
 
+        ApplyIcon();
         PlayerSettings.productName = "Shibuya Rush"; PlayerSettings.companyName = "tao";
         PlayerSettings.fullScreenMode = FullScreenMode.Windowed; PlayerSettings.defaultScreenWidth = 1280; PlayerSettings.defaultScreenHeight = 720;
         PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Standalone, "jp.tao.shibuyarush");
         PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, ScriptingImplementation.Mono2x);
         Debug.Log("SETUP_OK");
+    }
+
+    /// <summary>アプリアイコン(Assets/Icons/AppIcon.png)を iOS と PC に設定する。</summary>
+    static void ApplyIcon()
+    {
+        const string path = "Assets/Icons/AppIcon.png";
+        if (!System.IO.File.Exists(path)) return;
+        var ti = (TextureImporter)AssetImporter.GetAtPath(path);
+        if (ti != null) { ti.textureType = TextureImporterType.Default; ti.npotScale = TextureImporterNPOTScale.None; ti.mipmapEnabled = false; ti.textureCompression = TextureImporterCompression.Uncompressed; ti.alphaSource = TextureImporterAlphaSource.None; ti.isReadable = false; ti.SaveAndReimport(); }
+        var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path); if (tex == null) return;
+        try
+        {
+            var ios = PlayerSettings.GetPlatformIcons(NamedBuildTarget.iOS, UnityEditor.iOS.iOSPlatformIconKind.Application);
+            foreach (var ic in ios) ic.SetTexture(tex);
+            PlayerSettings.SetPlatformIcons(NamedBuildTarget.iOS, UnityEditor.iOS.iOSPlatformIconKind.Application, ios);
+        }
+        catch (System.Exception e) { Debug.LogWarning("iOS icon: " + e.Message); }
+        try { PlayerSettings.SetIcons(NamedBuildTarget.Unknown, new[] { tex }, IconKind.Application); } catch (System.Exception e) { Debug.LogWarning("default icon: " + e.Message); }
     }
 
     /// <summary>iPhone/iPad用のXcodeプロジェクトを出力する(Build/iOS)。署名とApp Storeへの提出はXcodeで行う。</summary>

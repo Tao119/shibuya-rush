@@ -35,12 +35,12 @@ namespace ShibuyaRush
             combo = 0; comboT = 0; comboBonus = 0; lastHits = player.plowed + player.shoved; lastCount = -1; resultNote = ""; starsEarned = 0; pops.Clear();
             trickN = 0; trickT = 0; ghostPassed = false; runCoins = 0; runCoinCount = 0; coinStreak = 0; runMaxCombo = 0; nearMiss = 0; hits = 0; bonusTime = 0; magnetT = 0; continueUsed = false; hintT = 0; ghostShown = false;
             runPlow0 = player.plowed + player.shoved; runSkill0 = player.skillUses; res = new ResultInfo(); failReason = "";
-            crowd.Recenter(s.start); routeT = 0f; guide.Clear();
-            ApplyUpgrades();
+            crowd.Recenter(s.start, graph.nodeLift[graph.NearestNode(s.start)]); routeT = 0f; guide.Clear();
+            player.allowDrop = autoplay; ApplyUpgrades();
             pickups.Populate(s.route, s.seed, graph, city);
             rival = s.boss ? new Rival(s.route, graph, s.rivalTime) : null;
             ghost.Begin(s.key); ghostHr = ghostHr ?? new HumanoidRenderer(new[] { M("GhostA") }, M("GhostA"), M("GhostA"));
-            if (autoplay) { botPath = new List<Vector2>(s.route); botIdx = 0; Debug.Log($"[Bot] route nodes={botPath.Count} dest={goalName} len={s.pathLen:F0} limit={s.limit:F0} coins={pickups.CoinsTotal}"); if (shotDir != null) System.IO.Directory.CreateDirectory(shotDir); }
+            if (autoplay) { botPath = graph.Path(player.pos, goal, player.lift); botLift = new List<float>(graph.lastPathLift); botIdx = 0; nextReplan = Time.unscaledTime + 1.5f; Debug.Log($"[Bot] route nodes={botPath.Count} dest={goalName} len={s.pathLen:F0} limit={s.limit:F0} coins={pickups.CoinsTotal}"); if (shotDir != null) System.IO.Directory.CreateDirectory(shotDir); }
             Cursor.lockState = CursorLockMode.None; Store.D.plays++;
         }
 
@@ -54,6 +54,18 @@ namespace ShibuyaRush
                 if (!ok) bad++;
                 if (n <= 12 || !ok) sb.Append($"\n  L{n}: {sp.startName} -> {sp.goalName} len={sp.pathLen:F0}m limit={sp.limit:F0}s par={sp.par3:F0}/{sp.par2:F0} mod={sp.mod} boss={sp.boss}{(ok ? "" : "  NG")}");
             }
+            // 人の密度: どの目的地・出発地でも、周りに人が十分いるか(40m以内の人数)
+            int minN = int.MaxValue, sumN = 0, cntN = 0; var lst = new List<int>();
+            for (int n = 1; n <= 40; n++)
+            {
+                var sp = levels.Make(n);
+                foreach (var pt in new[] { sp.goal, sp.start, sp.route[sp.route.Count / 2] })
+                {
+                    crowd.Recenter(pt); crowd.Step(0.0001f, pt, false, 0f); crowd.Query(pt, 40f, lst); int c = lst.Count; minN = Mathf.Min(minN, c); sumN += c; cntN++;
+                }
+            }
+            Debug.Log($"[SelfTest] crowd density within 40m of start/mid/goal: min={minN} avg={sumN / Mathf.Max(1, cntN)} (期待 minが十分大きい)");
+            crowd.Recenter(Vector2.zero);
             Debug.Log($"[SelfTest] levels: 40 generated, invalid={bad} (期待 0){sb}");
         }
 
@@ -61,7 +73,7 @@ namespace ShibuyaRush
         {
             state = GameState.Menu; panel = UiPanel.None; beam.SetActive(false); Time.timeScale = 1f;
             if (Store.D.level > 0) homeSpec = levels.Make(Store.D.level);
-            crowd.Recenter(homeSpec.start); guide.Clear();
+            crowd.Recenter(homeSpec.start, 0f); guide.Clear();
             player.pos = homeSpec.start; player.yaw = 0; player.ResetState(); player.lift = graph.nodeLift[graph.NearestNode(homeSpec.start)]; pickups.Clear(); rival = null;
         }
 
@@ -179,11 +191,27 @@ namespace ShibuyaRush
         // ---- 地面の道しるべ: 目的地までの最短経路にそって、流れる矢じるしを並べる ----
         readonly List<Vector2> guide = new List<Vector2>(); float routeT; Mesh chevron; readonly List<Matrix4x4> chevL = new List<Matrix4x4>(); Material chevMat;
 
+        /// <summary>矢印が指す点: 経路にそって約14m先。ゴールまでの経路の残りの長さも返す(経路がなければゴールの直線)。</summary>
+        Vector2 RouteAim(out float remain)
+        {
+            remain = (goal - player.pos).magnitude; if (guide.Count < 2) return goal;
+            int start = 0; float bd = float.MaxValue;
+            for (int i = 0; i + 1 < guide.Count; i++) { var a = guide[i]; var ab = guide[i + 1] - a; float l2 = ab.sqrMagnitude; float tt = l2 > 1e-4f ? Mathf.Clamp01(Vector2.Dot(player.pos - a, ab) / l2) : 0f; float d = (a + ab * tt - player.pos).sqrMagnitude; if (d < bd) { bd = d; start = i; } }
+            var cur = player.pos; float acc = 0f; Vector2 aim = goal; bool got = false;
+            for (int i = start; i + 1 < guide.Count; i++)
+            {
+                var b = guide[i + 1]; float l = (b - cur).magnitude;
+                if (!got && acc + l >= 14f && l > 1e-3f) { aim = cur + (b - cur) / l * (14f - acc); got = true; }
+                acc += l; cur = b;
+            }
+            remain = acc; return got ? aim : goal;
+        }
+
         void UpdateRouteGuide(float dt)
         {
             if (state != GameState.Playing && state != GameState.Countdown) return;
             routeT -= dt; if (routeT > 0f) return; routeT = touchMode ? 1.6f : 1.0f;
-            var r = graph.Path(player.pos, goal); guide.Clear(); if (r.Count >= 2) guide.AddRange(r);
+            var r = graph.Path(player.pos, goal, player.lift); guide.Clear(); if (r.Count >= 2) guide.AddRange(r);
         }
 
         void RenderRouteGuide()

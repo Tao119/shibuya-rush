@@ -23,7 +23,7 @@ namespace ShibuyaRush
 
         bool Tap(Rect r, Rect? clip = null)
         {
-            if (!upNow || !haveDown || dragMoved || adT > 0f) return false;
+            if (autoplay || !upNow || !haveDown || dragMoved || adT > 0f) return false;   // 自動プレイ中は画面のタップを受け付けない(外からの操作で状態が変わるのを防ぐ)
             if (clip.HasValue && !clip.Value.Contains(downPos)) return false;
             if (r.Contains(downPos) && r.Contains(upPos)) { upNow = false; fx.PlayClick(); return true; }
             return false;

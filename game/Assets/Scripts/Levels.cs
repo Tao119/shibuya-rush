@@ -39,6 +39,28 @@ namespace ShibuyaRush
             }
         }
 
+        // 現在地のざっくりした呼び名(実際の位置関係に近い、ハチ公像を原点にした座標)
+        static readonly (string name, float x, float z, float r)[] Zones =
+        {
+            ("ハチ公前", 0f, 0f, 30f), ("スクランブル交差点", -8f, 48f, 55f), ("SHIBUYA109前", -158f, 60f, 55f), ("SHIBUYA TSUTAYA前", -30f, 85f, 35f),
+            ("渋谷駅", 20f, -120f, 85f), ("スクランブルスクエア", 134f, -71f, 50f), ("渋谷ヒカリエ", 302f, 10f, 55f), ("マークシティ", -181f, -89f, 60f),
+            ("渋谷ストリーム", 217f, -205f, 55f), ("メガドンキ", -250f, 157f, 50f), ("TSUTAYA東口", 115f, -217f, 40f),
+        };
+
+        /// <summary>プレイヤーの現在地の呼び名。名所の近く、なければ最寄りの通り、なければ駅周辺。lift&gt;2なら「2F」を付ける。</summary>
+        public string Place(Vector2 p, float lift)
+        {
+            string best = null; float bs = 1f;
+            foreach (var z in Zones) { float s = (new Vector2(z.x, z.z) - p).magnitude / z.r; if (s < bs) { bs = s; best = z.name; } }
+            if (best == null)
+            {
+                float bd = 28f * 28f;
+                foreach (var (n, q) in roadNames) { float d = (q - p).sqrMagnitude; if (d < bd) { bd = d; best = n; } }
+            }
+            if (best == null) best = p.magnitude < 400f ? "渋谷駅周辺" : "渋谷";
+            return lift > 2f ? best + " (2F)" : best;
+        }
+
         public string NameAt(Vector2 p)
         {
             float bd = 45f * 45f; string best = null;

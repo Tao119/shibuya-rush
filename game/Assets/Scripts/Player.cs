@@ -11,7 +11,7 @@ namespace ShibuyaRush
     public class Player
     {
         public const float WalkSpeed = 6.0f, DashSpeed = 10.5f, BodyR = 0.72f;
-        public const float DashDur = 1.4f, DashCool = 4.5f, SlipDur = 0.9f, SlipCool = 7f, ShoveCool = 5f;
+        public const float DashDur = 1.2f, DashCool = 8f, SlipDur = 0.9f, SlipCool = 6f, ShoveCool = 5f;   // ダッシュは強いので待ち時間を長く、持続を短くした
         public Vector2 pos; public float yaw; public float phase;
         public float speedNow, slowFactor = 1f, lift;
         public float dashT, slipT, shoveFx, stagger;                 // 発動中・よろけの残り秒
@@ -20,7 +20,7 @@ namespace ShibuyaRush
         public int bumps, plowed, shoved; public Vector2 bumpDir;
         // アップグレードと一時効果
         public float speedMul = 1f, dashCdMul = 1f, slipCdMul = 1f, shoveCdMul = 1f, shoveRange = 1f, shieldT;
-        public int skillUses;
+        public int skillUses; public bool allowDrop;   // 自動テスト用: 2階の端から飛び降りてもよい(人が操作するときは落ちない)
         public float DashCd => DashCool * dashCdMul; public float SlipCd => SlipCool * slipCdMul; public float ShoveCd => ShoveCool * shoveCdMul;
         public bool Slipping => slipT > 0f;
         readonly CityBuilder city; readonly Crowd crowd; readonly PedGraph graph; readonly List<int> hits = new List<int>();
@@ -60,7 +60,7 @@ namespace ShibuyaRush
             crowd.Query(pos, BodyR + 0.1f, hits);
             foreach (int i in hits)
             {
-                if (Mathf.Abs(crowd.LiftOf(i) - lift) > 1.5f) continue;
+                if (Mathf.Abs(crowd.LiftOf(i) - lift) > 2.4f) continue;
                 var d = pos - crowd.PosOf(i); float dist = d.magnitude;
                 if (dist >= BodyR) continue;
                 var n = dist > 1e-3f ? d / dist : new Vector2(-Mathf.Sin(yaw * Mathf.Deg2Rad), -Mathf.Cos(yaw * Mathf.Deg2Rad));
@@ -88,11 +88,14 @@ namespace ShibuyaRush
         public void Knock(Vector2 v) { vel = v; stagger = Mathf.Max(stagger, 0.4f); }
         public void Shove(Vector2 d) { pos += d; }
 
-        void Move(Vector2 d)
+        void Move(Vector2 d) { graph.walkLift = lift; city.QueryLift = lift; try { MoveInner(d); } finally { graph.walkLift = 0f; city.QueryLift = 0f; } }
+
+        void MoveInner(Vector2 d)
         {
             // すでに建物の中(駅構内など、通路から入った場合)にいるなら、建物の中どうしの移動は許す。外から壁を抜けて入ることはできない
-            if (city.Blocked(pos.x, pos.y, 0f)) Rescue();   // 建物の中に入り込んでいたら、いちばん近い外に出す(中を歩き回らせない)
-            bool Free(float x, float z) => !city.Blocked(x, z);
+            if (city.Blocked(pos.x, pos.y, 0f) || (lift < 1.5f && !graph.InCorridor(pos.x, pos.y, lift))) Rescue();   // 建物の中に入り込んでいたら、いちばん近い外に出す(中を歩き回らせない)
+            // 柱は地上(1階)の人だけにぶつかる。2階にいる間は、2階の床の外へは出られない(落ちない)
+            bool Free(float x, float z) => !city.Blocked(x, z) && (lift >= 1.5f || graph.InCorridor(x, z, lift)) && !(lift < 2.2f && city.HitPillar(x, z, 0.35f)) && !(lift < 1.0f && graph.Clearance(x, z, lift) < 2.2f) && (lift < 1.5f || allowDrop || graph.ReachableLift(x, z, lift) > lift - 1.0f);
             var n = pos + d;
             if (Free(n.x, n.y)) { pos = n; return; }
             if (Free(pos.x + d.x, pos.y)) pos.x += d.x;
@@ -108,7 +111,7 @@ namespace ShibuyaRush
                 for (int k = 0; k < 16; k++)
                 {
                     float an = k * Mathf.PI / 8f; var q = pos + new Vector2(Mathf.Cos(an), Mathf.Sin(an)) * r;
-                    if (!city.Blocked(q.x, q.y)) { pos = q; vel = Vector2.zero; return; }
+                    if (!city.Blocked(q.x, q.y) && (lift >= 1.5f || graph.InCorridor(q.x, q.y, lift))) { pos = q; vel = Vector2.zero; return; }
                 }
         }
 

@@ -13,7 +13,7 @@ namespace ShibuyaRush
         {
             public int edge, toNode, hub, pending; public float t;     // 辺上の位置(fromNodeからの距離)
             public float speed, lateral, phase, scale; public int tint;
-            public Vector2 pos, off, vel; public float yaw, lift, air, airV, spin;
+            public Vector2 pos, off, vel; public float yaw, lift, air, airV, spin, sq;
         }
         readonly PedGraph g; readonly Agent[] a; readonly HumanoidRenderer hr;
         readonly int[] cellHead = new int[1 << 17]; readonly int[] next;
@@ -28,7 +28,9 @@ namespace ShibuyaRush
         public float ActiveRadius = 180f; public bool Stream = true;
         int[] cand; float[] candCum; Vector2[] candMid;
 
-        public Crowd(PedGraph graph, HumanoidRenderer renderer, int count, int seed)
+        float[] fL, fR;   // 道の中心から左右の壁までの空き幅(プレイヤーが歩ける範囲に人も歩けるように)
+
+        public Crowd(PedGraph graph, HumanoidRenderer renderer, int count, int seed, System.Func<float, float, bool> blocked = null)
         {
             g = graph; hr = renderer; a = new Agent[count]; next = new int[count]; rng = new System.Random(seed);
             System.Array.Fill(cellHead, -1);
@@ -42,6 +44,7 @@ namespace ShibuyaRush
             }
             cand = ids.ToArray(); candCum = cum.ToArray(); candMid = new Vector2[cand.Length];
             for (int k = 0; k < cand.Length; k++) { var ee = g.edges[cand[k]]; candMid[k] = (g.nodes[ee.a] + g.nodes[ee.b]) * 0.5f; }
+            fL = g.freeL; fR = g.freeR; if (fL == null) { g.ComputeFree(blocked); fL = g.freeL; fR = g.freeR; }
             for (int i = 0; i < count; i++)
             {
                 float r = (float)rng.NextDouble() * tot; int lo = 0, hi = cum.Count - 1;
@@ -50,32 +53,48 @@ namespace ShibuyaRush
                 a[i].edge = eid; a[i].toNode = fwd ? e.b : e.a; a[i].t = (float)rng.NextDouble() * e.len;
                 a[i].hub = rng.Next(g.hubNodes.Length); a[i].pending = -1;
                 a[i].speed = 0.9f + (float)rng.NextDouble() * 0.9f;
-                a[i].lateral = Lane(e);
+                a[i].lateral = Lat(eid, a[i].toNode == e.b, rng.NextDouble() < 0.5 ? 1f : -1f, 0f, false);
                 a[i].phase = (float)rng.NextDouble() * 6.28f; a[i].tint = rng.Next(0, hr.TintCount);
                 a[i].scale = 0.88f + (float)rng.NextDouble() * 0.22f;
                 a[i].pos = Target(i);
             }
         }
 
-        /// <summary>人iを、プレイヤーから [0.55R, R] の輪の中にある道へ置き直す。</summary>
-        void Respawn(int i, Vector2 p)
+        /// <summary>道の上での横位置。人は歩ける範囲(壁まで)に広がる。車道では歩道側に寄る。keep=trueなら前の辺からの連続性を保つ。</summary>
+        float Lat(int eid, bool fwd, float sign, float prev, bool keep)
+        {
+            var e = g.edges[eid]; float hi = fwd ? fL[eid] : fR[eid], lo = -(fwd ? fR[eid] : fL[eid]);
+            if (!e.car)
+            {
+                if (keep) return Mathf.Clamp(prev, lo * 0.9f, hi * 0.9f);
+                return Mathf.Lerp(lo, hi, (float)rng.NextDouble()) * 0.9f;
+            }
+            if (keep) return Mathf.Clamp(prev, lo * 0.9f, hi * 0.9f);
+            if (rng.NextDouble() < 0.45) return Mathf.Lerp(lo, hi, (float)rng.NextDouble()) * 0.9f;   // 車道の真ん中にも人がいる(プレイヤーが走れる所には人もいる)
+            float inner = Mathf.Max(0.3f, e.width * 0.5f - 0.5f); float ext = (sign >= 0f ? hi : -lo) * 0.9f; float outer = Mathf.Max(inner, ext);
+            return sign * Mathf.Lerp(inner - 0.6f, outer, (float)rng.NextDouble());
+        }
+
+        /// <summary>人iを、プレイヤーから [minFrac*R, R] の輪の中で、プレイヤーと同じ階の道へ置き直す。</summary>
+        void Respawn(int i, Vector2 p, float minFrac, float pLift)
         {
             int best = -1; float bestScore = float.MaxValue; float tot = candCum[candCum.Length - 1];
-            for (int tr = 0; tr < 20; tr++)
+            for (int tr = 0; tr < 40; tr++)
             {
                 float r = (float)rng.NextDouble() * tot; int lo = 0, hi = candCum.Length - 1;
                 while (lo < hi) { int mid = (lo + hi) / 2; if (candCum[mid] < r) lo = mid + 1; else hi = mid; }
-                float d = (candMid[lo] - p).magnitude; float score = d < ActiveRadius * 0.55f ? ActiveRadius * 0.55f - d : d > ActiveRadius ? d - ActiveRadius : 0f;
+                float d = (candMid[lo] - p).magnitude; float score = d < ActiveRadius * minFrac ? ActiveRadius * minFrac - d : d > ActiveRadius ? d - ActiveRadius : 0f;
+                { var ce = g.edges[cand[lo]]; if (Mathf.Abs((ce.lA + ce.lB) * 0.5f - pLift) > 2.5f) score += 500f; }   // 別の階の道は選ばない
                 if (score < bestScore) { bestScore = score; best = lo; if (score <= 0f) break; }
             }
             int eid = cand[best]; var e = g.edges[eid]; bool fwd = rng.NextDouble() < 0.5; ref var ag = ref a[i];
             ag.edge = eid; ag.toNode = fwd ? e.b : e.a; ag.t = (float)rng.NextDouble() * e.len; ag.pending = -1; ag.hub = rng.Next(g.hubNodes.Length);
-            ag.lateral = Lane(e); ag.off = Vector2.zero; ag.vel = Vector2.zero; ag.air = 0f; ag.airV = 0f; ag.spin = 0f; ag.pos = Target(i);
+            ag.lateral = Lat(eid, ag.toNode == e.b, rng.NextDouble() < 0.5 ? 1f : -1f, 0f, false); ag.off = Vector2.zero; ag.vel = Vector2.zero; ag.air = 0f; ag.airV = 0f; ag.spin = 0f; ag.pos = Target(i);
             float fr = Mathf.Clamp01(ag.t / Mathf.Max(e.len, 0.01f)); ag.lift = ag.toNode == e.b ? Mathf.Lerp(e.lA, e.lB, fr) : Mathf.Lerp(e.lB, e.lA, fr);
         }
 
         /// <summary>プレイヤーが飛んだとき(レベル開始など): 半径の外にいる人を一度に出し直す。</summary>
-        public void Recenter(Vector2 p) { for (int i = 0; i < a.Length; i++) if ((a[i].pos - p).sqrMagnitude > ActiveRadius * ActiveRadius) Respawn(i, p); }
+        public void Recenter(Vector2 p, float lift = 0f) { for (int i = 0; i < a.Length; i++) if ((a[i].pos - p).sqrMagnitude > ActiveRadius * ActiveRadius || Mathf.Abs(a[i].lift - lift) > 2.5f) Respawn(i, p, 0f, lift); }
 
         float Lane(PedGraph.Edge e) => e.car ? SideLane(e, rng.NextDouble() < 0.5 ? 1f : -1f) : Wide(e.width);
 
@@ -141,8 +160,7 @@ namespace ShibuyaRush
         void Enter(int i, int eid, int node)
         {
             ref var ag = ref a[i]; var ne = g.edges[eid]; ag.pending = -1; ag.edge = eid; ag.toNode = g.Other(eid, node); ag.t = 0;
-            float half = Mathf.Max(0.3f, (ne.width - 1f) * 0.5f);
-            ag.lateral = ne.car ? SideLane(ne, ag.lateral >= 0f ? 1f : -1f) : Mathf.Clamp(ag.lateral, -half, half);
+            ag.lateral = Lat(eid, ag.toNode == ne.b, ag.lateral >= 0f ? 1f : -1f, ag.lateral, true);
         }
 
         int frame;
@@ -152,7 +170,7 @@ namespace ShibuyaRush
             for (int i = 0; i < a.Length; i++)
             {
                 ref var ag = ref a[i];
-                if (Stream && (ag.pos - player).sqrMagnitude > outR2 && budget > 0 && ag.air <= 0.01f) { Respawn(i, player); budget--; continue; }
+                if (Stream && (ag.pos - player).sqrMagnitude > outR2 && budget > 0 && ag.air <= 0.01f) { Respawn(i, player, 0.55f, playerLift); budget--; continue; }
                 float dt = dtFrame;
                 if ((ag.pos - player).sqrMagnitude > 130f * 130f)   // 遠くの人は3フレームに1回だけ動かす(負荷対策)
                 {
@@ -173,6 +191,7 @@ namespace ShibuyaRush
                 ag.off *= Mathf.Exp(-1.6f * dt);
                 if (ag.off.sqrMagnitude > 9f) ag.off = ag.off.normalized * 3f;
                 { var ee = g.edges[ag.edge]; float fr = Mathf.Clamp01(ag.t / Mathf.Max(ee.len, 0.01f)); ag.lift = ag.toNode == ee.b ? Mathf.Lerp(ee.lA, ee.lB, fr) : Mathf.Lerp(ee.lB, ee.lA, fr); }
+                ag.sq = ag.lift > 0.3f && ag.lift < 20f ? Mathf.Clamp((g.Clearance(ag.pos.x, ag.pos.y, ag.lift) - 0.1f) / 2.0f, 0.55f, 1f) : 1f;   // 床の下をくぐる坂では、頭が突き抜けないよう縮む
                 var d = ag.pos - player;
                 if (playerSolid && d.sqrMagnitude < 0.2f && Mathf.Abs(ag.lift - playerLift) < 1.5f)
                 {
@@ -212,7 +231,7 @@ namespace ShibuyaRush
                 if (d2 > far2) continue;
                 if (d2 > 100f && Vector2.Dot(d, f) < 0.25f * Mathf.Sqrt(d2)) continue; // 視野外(約±75度の外)
                 var p = new Vector3(a[i].pos.x, hf.Height(a[i].pos.x, a[i].pos.y) + a[i].lift + a[i].air, a[i].pos.y);
-                if (d2 < near2) hr.Add(p, a[i].yaw, a[i].phase, a[i].air > 0f ? 1.8f : 1f, a[i].tint, a[i].scale, a[i].spin);
+                if (d2 < near2) hr.Add(p, a[i].yaw, a[i].phase, a[i].air > 0f ? 1.8f : 1f, a[i].tint, a[i].scale * (a[i].sq > 0f ? a[i].sq : 1f), a[i].spin);
                 else hr.AddFar(p, a[i].tint, a[i].scale);
             }
         }

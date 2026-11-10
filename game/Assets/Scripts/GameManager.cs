@@ -20,10 +20,10 @@ namespace ShibuyaRush
         SkillFx fx; GameObject arrow3d; Texture2D arrowTex, vigTex; Material arrowMat;
         readonly InputHub input = new InputHub(); bool touchMode, crowdArg, carsArg;
         // Bot / 計測
-        bool autoplay, noSkills, selfTest, resetSave, noPersist, demoWin, demoFail; string panelArg = ""; int levelArg; bool fxTest, menuShot, finShot2, fakeJoy; float menuQuitAt; bool f1, f2, f3; float shotAt; string shotTag; Vector2 startPos = new Vector2(3.6f, -3.2f); float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; int botIdx; float stuckT; bool stuckLogged;
+        bool autoplay, noSkills, selfTest, resetSave, noPersist, demoWin, demoFail; string panelArg = ""; int levelArg; bool fxTest, menuShot, finShot2, fakeJoy; float menuQuitAt; bool f1, f2, f3; float shotAt; string shotTag; Vector2 startPos = new Vector2(3.6f, -3.2f); float camBack = 6.5f, camUp = 4.2f, maxLift; string shotDir; float quitAfter = 150f; List<Vector2> botPath; List<float> botLift = new List<float>(); float nextReplan; int botIdx; float stuckT; bool stuckLogged;
         readonly List<float> frameMs = new List<float>(); float nextShot; int shotNo; string resultNote = "";
 
-        int giveCoins; HashSet<int> hidden = new HashSet<int>();
+        string placeName = ""; float placeT; int giveCoins; HashSet<int> hidden = new HashSet<int>();
         Material M(string n) => Resources.Load<Material>("Mats/" + n);
 
         void Awake()
@@ -72,25 +72,27 @@ namespace ShibuyaRush
               foreach (var gg in new[] { g0, g1 })
                   foreach (var e in gg.edges)
                   {
-                      if (e.width <= 0f || e.lA > 0.05f || e.lB > 0.05f || !gg.inMain[e.a]) continue; var a0 = gg.nodes[e.a];
-                      for (float t = 1.5f; t < e.len - 1.5f; t += 1.5f) { var p = a0 + e.dir * t; int bid = probe.BuildingAt(p.x, p.y); if (bid >= 0) hitCount[bid] = hitCount.TryGetValue(bid, out var c) ? c + 1 : 1; }
+                      if (e.width <= 0f || !gg.inMain[e.a]) continue; var a0 = gg.nodes[e.a];
+                      for (float t = 1.5f; t < e.len - 1.5f; t += 1.5f) { var p = a0 + e.dir * t; int bid = probe.BuildingAt(p.x, p.y); float lv = Mathf.Lerp(e.lA, e.lB, t / e.len); if (bid >= 0 && (lv < 0.05f || data.buildings[bid].h > lv + 0.5f)) hitCount[bid] = hitCount.TryGetValue(bid, out var c) ? c + 1 : 1; }
                   }
-              hidden = new HashSet<int>(); float hh = 0f; foreach (var kv in hitCount) if (kv.Value >= 2) { hidden.Add(kv.Key); hh += data.buildings[kv.Key].h; }
-              Debug.Log($"[Graph] buildings hidden (road passes through)={hidden.Count} of {data.buildings.Length} avgH={(hidden.Count > 0 ? hh / hidden.Count : 0):F1}"); }
+              hidden = new HashSet<int>(); float hh = 0f; int hit2 = 0; foreach (var kv in hitCount) if (kv.Value >= 2) hit2++;
+              foreach (var kv in hitCount) if (kv.Value >= 1) { hidden.Add(kv.Key); hh += data.buildings[kv.Key].h; }
+              Debug.Log($"[Graph] buildings hidden (road passes through)={hidden.Count} (2点以上={hit2}) of {data.buildings.Length} avgH={(hidden.Count > 0 ? hh / hidden.Count : 0):F1}"); }
             city = new CityBuilder(); city.Hidden = hidden;
             var pal = new Material[CityBuilder.PaletteSize];
             for (int i = 0; i < pal.Length; i++) pal[i] = M("Bld" + i);
             city.Build(data, M("Ground"), M("Road"), M("Walkway"), pal, M("Marking"));
             graph = new PedGraph(data);
-            city.Exempt = graph.OnWalkway;
+            city.Exempt = null;   // 例外は設けない: 壁は高さで判定する(高架の上は屋根より高ければ通れる)
             int pruned = graph.Prune(city.InsideBuilding, false);
+            graph.ComputeFree((x, z) => city.Blocked(x, z, 0.5f)); city.MakeWalkable(graph, M("Walkway")); city.MakeStairs(graph, M("Walkway"));
             var lm = new List<Vector2>(); foreach (var q in data.pois) lm.Add(new Vector2(q.x, q.z));
             lm.Add(Vector2.zero);
             graph.BuildHubs(300, 7, lm);
             var tints = new Material[10]; for (int i = 0; i < tints.Length; i++) tints[i] = M("Tint" + i);
             crowdHr = new HumanoidRenderer(tints, M("Pants"), M("Skin"));
             playerHr = new HumanoidRenderer(new[] { M("PlayerTint") }, M("PlayerPants"), M("Skin"));
-            crowd = new Crowd(graph, crowdHr, crowdCount, 12345);
+            crowd = new Crowd(graph, crowdHr, crowdCount, 12345, (x, z) => city.Blocked(x, z, 0.5f));
             if (touchMode) ApplyMobileProfile();
             props = new Props(data, city, graph, city.Root.transform, touchMode); if (touchMode) props.DrawDist = 80f;
             carGraph = new PedGraph(data, true); int prunedCar = carGraph.Prune(city.InsideBuilding, false); Debug.Log($"[Graph] pruned walk={pruned} car={prunedCar}"); carGraph.BuildHubs(Mathf.Min(150, Mathf.Max(2, carGraph.MainCount / 4)), 11, new List<Vector2>());
@@ -129,7 +131,7 @@ namespace ShibuyaRush
             Debug.Log($"[Shibuya] roads={data.roads.Length} buildings={city.BuildingCount} nodes={graph.nodes.Count} main={graph.MainCount} edges={graph.edges.Count} hubs={graph.hubNodes.Length} crowd={crowd.Count} post={fx.PostOk} trees={props.TreeCount} lamps={props.LampCount} signals={props.SignalCount} neon={props.NeonCount}");
             if (shotDir != null) Directory.CreateDirectory(shotDir);
             if (selfTest) RunLevelTests();
-            crowd.Recenter(Vector2.zero);
+            crowd.Recenter(Vector2.zero, 0f);
             if (autoplay) StartLevel(poiIndex >= 0 ? levels.MakeFree(poiIndex) : levels.Make(levelArg));
             else
             {
@@ -148,7 +150,7 @@ namespace ShibuyaRush
             var empty = new Crowd(graph, crowdHr, 0, 1); int tested = 0, penetrated = 0; float worst = 0f;
             foreach (var (mid, outw) in city.WallSamples(400, 7))
             {
-                var start = mid + outw * 3f; if (city.Blocked(start.x, start.y, 0.4f) || city.Exempt.Invoke(start.x, start.y) || city.Exempt.Invoke(mid.x, mid.y)) continue;
+                var start = mid + outw * 3f; if (city.Blocked(start.x, start.y, 0.4f) || (city.Exempt != null && (city.Exempt.Invoke(start.x, start.y) || city.Exempt.Invoke(mid.x, mid.y)))) continue;
                 var pl = new Player(city, empty, graph, start); tested++;
                 for (int f = 0; f < 180; f++) pl.Tick(1f / 60f, -outw, f > 20 && f < 60 && false, false, false);
                 if (city.InsideBuilding(pl.pos.x, pl.pos.y)) { penetrated++; worst = Mathf.Max(worst, Vector2.Distance(pl.pos, mid)); }
@@ -166,6 +168,21 @@ namespace ShibuyaRush
                 for (int f = 0; f < 120; f++) { pl.Tick(1f / 60f, -dir, false, false, false); minD = Mathf.Min(minD, Vector2.Distance(pl.pos, q)); }
                 minAll = Mathf.Min(minAll, minD); if (minD < 0.4f) cp++;
             }
+            // (3) ランダムに走り回る(ダッシュ・すり抜け・かき分け込み)プレイヤーが、建物の中・柱の中に入らないか
+            { var rf = new System.Random(77); int fz = 0, steps = 0, inPillar = 0;
+              for (int k = 0; k < 150; k++)
+              {
+                  int pi = rf.Next(crowd.Count); int guardN = 0; while ((crowd.LiftOf(pi) > 0.3f || city.InsideBuilding(crowd.PosOf(pi).x, crowd.PosOf(pi).y)) && guardN++ < 200) pi = rf.Next(crowd.Count);   // 1階の人の位置から出発(2階の人の真下は建物の中のことがある)
+                  var q = crowd.PosOf(pi); var pl = new Player(city, empty, graph, q); var dirv = Vector2.up;
+                  for (int f = 0; f < 600; f++)
+                  {
+                      if (f % 40 == 0) { float an = (float)rf.NextDouble() * 6.283f; dirv = new Vector2(Mathf.Cos(an), Mathf.Sin(an)); }
+                      pl.Tick(1f / 30f, dirv, f % 97 == 0, f % 151 == 0, f % 71 == 0); steps++;
+                      city.QueryLift = pl.lift; bool bad = city.Blocked(pl.pos.x, pl.pos.y, 0f); city.QueryLift = 0f; if (bad) { fz++; if (fz <= 6) Debug.Log($"[SelfTest] fuzz violation: pos={pl.pos} lift={pl.lift:F1} inCorridor={graph.InCorridor(pl.pos.x, pl.pos.y, pl.lift)} inside={city.InsideBuilding(pl.pos.x, pl.pos.y)} pillar={city.HitPillar(pl.pos.x, pl.pos.y, 0f)} step={f} slip={pl.Slipping} dash={pl.dashT > 0}"); }
+                      if (pl.lift < 2.2f && city.HitPillar(pl.pos.x, pl.pos.y, 0f)) inPillar++;
+                  }
+              }
+              Debug.Log($"[SelfTest] fuzz: players=150 steps={steps} insideBuilding={fz} insidePillar={inPillar} (期待 0)"); }
             Debug.Log($"[SelfTest] crowd: tested={ct} closer_than_0.4m={cp} (期待 ほぼ0) minDistance={minAll:F2}");
         }
 
@@ -190,7 +207,11 @@ namespace ShibuyaRush
             float udt = Time.unscaledDeltaTime;
             dash = slip = shove = false;
             if (botPath == null || botPath.Count == 0) return Vector2.zero;
-            while (botIdx < botPath.Count - 1 && (botPath[botIdx] - player.pos).sqrMagnitude < 2.5f * 2.5f) botIdx++;
+            if (player.lift > 0.3f && Time.unscaledTime > nextReplan)
+            {   // 2階にいる間は、いまの階から経路を引き直す(真下の1階の道に向かって走り続けないように)
+                nextReplan = Time.unscaledTime + 1.5f; var np2 = graph.Path(player.pos, goal, player.lift); if (np2.Count >= 2) { botPath = np2; botLift = new List<float>(graph.lastPathLift); botIdx = 0; }
+            }
+            while (botIdx < botPath.Count - 1 && (botPath[botIdx] - player.pos).sqrMagnitude < 2.5f * 2.5f && (botIdx >= botLift.Count || Mathf.Abs(botLift[botIdx] - player.lift) < 2.6f)) botIdx++;
             // 経路の線分に沿って、現在位置の少し先(4m)を狙う。押し出されて線からそれても、線へ戻れる
             var sa = botPath[Mathf.Max(botIdx - 1, 0)]; var sb = botPath[botIdx]; var sd = sb - sa; float sl = sd.magnitude;
             Vector2 aim = sb;
@@ -293,6 +314,7 @@ namespace ShibuyaRush
             // 人混みはメニューでも動かす
             crowd.Step(dt, player.pos, !player.Slipping, player.lift);
             UpdateRouteGuide(rdt);
+            placeT -= rdt; if (placeT <= 0f) { placeT = 0.4f; placeName = levels.Place(player.pos, player.lift); }
             traffic.Step(dt);
             player.Tick(rdt, wish, dash, slip, shove);
             var pw = new Vector3(player.pos.x, Heightfield.Current.Height(player.pos.x, player.pos.y) + player.lift, player.pos.y);
@@ -341,7 +363,8 @@ namespace ShibuyaRush
             crowd.Render(cam.transform.position, cam.transform.forward); traffic.Render(cam.transform.position); props.Render(cam.transform.position, crowd.Clock);
             if (state != GameState.Menu) { pickups.Render(cam.transform.position); RenderRouteGuide(); }
             float lean = Mathf.Clamp(player.speedNow * 1.6f, 0, 18f);
-            playerHr.Add(pw, player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.15f, lean, Mathf.Clamp(1f + sq + (player.dashT > 0 ? 0.1f : 0f), 0.6f, 1.4f));
+            float headFit = player.lift > 0.3f ? Mathf.Clamp((graph.Clearance(player.pos.x, player.pos.y, player.lift) - 0.1f) / 2.4f, 0.55f, 1f) : 1f;
+            playerHr.Add(pw, player.yaw, player.phase, Mathf.Clamp01(player.speedNow / 3f), 0, 1.15f * headFit, lean, Mathf.Clamp(1f + sq + (player.dashT > 0 ? 0.1f : 0f), 0.6f, 1.4f));
             cosm.DrawHat(Store.D.hat, playerHr.LastHead);
             cosm.UpdateTrail(Store.D.trail, pw, state == GameState.Playing && player.speedNow > 1.5f);
             if (rival != null && state != GameState.Menu) rivalHr.Add(new Vector3(rival.pos.x, Heightfield.Current.Height(rival.pos.x, rival.pos.y) + rival.lift, rival.pos.y), rival.yaw, rival.phase, 1f, 0, 1.2f, 14f);

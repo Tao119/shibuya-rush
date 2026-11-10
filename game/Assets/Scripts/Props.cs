@@ -14,14 +14,14 @@ namespace ShibuyaRush
         readonly List<Item> trees = new List<Item>(), lamps = new List<Item>(), signals = new List<Item>(); readonly List<int> signalEdge = new List<int>();
         readonly Mesh trunk, crown, pole, lampHead, sigHead, sigLamp; readonly Material trunkM, poleM, lampM, headM, greenM, redM; readonly Material[] leafM;
         readonly List<Matrix4x4>[] crownL; readonly List<Matrix4x4> trunkL = new List<Matrix4x4>(), poleL = new List<Matrix4x4>(), lampL = new List<Matrix4x4>(), headL = new List<Matrix4x4>(), greenL = new List<Matrix4x4>(), redL = new List<Matrix4x4>();
-        readonly Matrix4x4[] buf = new Matrix4x4[1000]; readonly PedGraph graph; public float DrawDist = 130f;
+        CityBuilder cityRef; readonly Matrix4x4[] buf = new Matrix4x4[1000]; readonly PedGraph graph; public float DrawDist = 130f;
         public int TreeCount => trees.Count; public int LampCount => lamps.Count; public int SignalCount => signals.Count;
 
         static Material M(string n) => Resources.Load<Material>("Mats/" + n);
 
         public Props(CityData data, CityBuilder city, PedGraph graph, Transform parent, bool mobile)
         {
-            this.graph = graph; var hf = Heightfield.Current;
+            this.graph = graph; cityRef = city; var hf = Heightfield.Current;
             trunk = HumanoidMesh.Capsule(0.13f, 2.6f, false, 8, 2); crown = HumanoidMesh.Sphere(0.5f); pole = HumanoidMesh.Capsule(0.07f, 5.2f, false, 8, 2);
             lampHead = HumanoidMesh.Sphere(0.22f); sigHead = HumanoidMesh.Box(new Vector3(0.34f, 0.62f, 0.26f), false); sigLamp = HumanoidMesh.Sphere(0.13f);
             trunkM = M("TreeTrunk"); poleM = M("Pole"); lampM = M("LampWarm"); headM = M("Pole"); greenM = M("SigGreen"); redM = M("SigRed");
@@ -49,7 +49,7 @@ namespace ShibuyaRush
                 var e = graph.edges[id]; if (e.sig == 0) continue;
                 var a = graph.nodes[e.a]; var b = graph.nodes[e.b]; var n = new Vector2(-e.dir.y, e.dir.x);
                 foreach (var (p, yaw) in new[] { (a + n * 1.6f - e.dir * 0.3f, Mathf.Atan2(e.dir.x, e.dir.y) * Mathf.Rad2Deg), (b + n * 1.6f + e.dir * 0.3f, Mathf.Atan2(-e.dir.x, -e.dir.y) * Mathf.Rad2Deg) })
-                { if (city.InsideBuilding(p.x, p.y)) continue; signals.Add(new Item { pos = new Vector3(p.x, hf.Height(p.x, p.y) + 0, p.y), yaw = yaw, scale = 1f }); signalEdge.Add(id); }
+                { if (city.InsideBuilding(p.x, p.y)) continue; city.AddSolid(p, 0.25f); signals.Add(new Item { pos = new Vector3(p.x, hf.Height(p.x, p.y) + 0, p.y), yaw = yaw, scale = 1f }); signalEdge.Add(id); }
             }
             BuildNeon(data, city, parent, mobile); BuildHachiko(city, parent);
         }
@@ -57,9 +57,10 @@ namespace ShibuyaRush
         void AddTree(Vector2 p, System.Random rng, CityBuilder city)
         {
             if (city.InsideBuilding(p.x, p.y) || city.Blocked(p.x, p.y, 0.5f)) return;
+            city.AddSolid(p, 0.38f);
             trees.Add(new Item { pos = new Vector3(p.x, Heightfield.Current.Height(p.x, p.y), p.y), yaw = (float)rng.NextDouble() * 360f, scale = 0.85f + (float)rng.NextDouble() * 0.6f, variant = rng.Next(3) });
         }
-        void AddLamp(Vector2 p, System.Random rng) { lamps.Add(new Item { pos = new Vector3(p.x, Heightfield.Current.Height(p.x, p.y), p.y), yaw = (float)rng.NextDouble() * 360f, scale = 1f }); }
+        void AddLamp(Vector2 p, System.Random rng) { cityRef?.AddSolid(p, 0.2f); lamps.Add(new Item { pos = new Vector3(p.x, Heightfield.Current.Height(p.x, p.y), p.y), yaw = (float)rng.NextDouble() * 360f, scale = 1f }); }
 
         // ---------------- ネオン看板 ----------------
         void BuildNeon(CityData data, CityBuilder city, Transform parent, bool mobile)

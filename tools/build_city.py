@@ -1,3 +1,4 @@
+import math
 #!/usr/bin/env python3
 """data/raw のOSM JSONを、Unityが読む city.json(ハチ公像を原点、x=東 z=北 [m])に変換する。"""
 import json, math
@@ -91,14 +92,52 @@ for r in roads:
     r["l1"] = r["lift"] if ends.get((r["p"][n - 2], r["p"][n - 1]), 0) >= 2 else 0.0
 print("lifted roads:", sum(1 for r in roads if r["lift"] > 0))
 
+# 高架の整理: 幅の広すぎる歩道を細くし、別の高架に完全に覆われて重なるだけの細い歩道を捨てる(スロープが何枚も重なって見えないように)
+try:
+    from shapely.geometry import LineString
+    from shapely.strtree import STRtree
+    def CHK(r): return sum(math.hypot(r["p"][k + 2] - r["p"][k], r["p"][k + 3] - r["p"][k + 1]) for k in range(0, len(r["p"]) - 2, 2))
+    for r in roads:
+        if r["lift"] > 0 and r["cls"] in ("footway", "pedestrian", "path", "steps"): r["w"] = min(r["w"], 9.0)
+    lifted = [i for i, r in enumerate(roads) if r["lift"] > 0 and not r.get("tunnel")]
+    polys = []
+    for i in lifted:
+        q = roads[i]["p"]; polys.append(LineString([(q[k], q[k + 1]) for k in range(0, len(q), 2)]).buffer(roads[i]["w"] / 2, cap_style=2))
+    tree = STRtree(polys); drop = set()
+    for a_ in range(len(lifted)):
+        for b_ in tree.query(polys[a_]):
+            if b_ <= a_: continue
+            ra, rb = roads[lifted[a_]], roads[lifted[b_]]
+            if abs(ra["lift"] - rb["lift"]) > 1 or lifted[a_] in drop or lifted[b_] in drop: continue
+            ia = polys[a_].intersection(polys[b_]).area; m = min(polys[a_].area, polys[b_].area)
+            if m > 0 and ia / m > 0.6:
+                small = lifted[a_] if polys[a_].area <= polys[b_].area else lifted[b_]
+                if roads[small]["cls"] in ("footway", "path", "steps"): drop.add(small)
+    # 両端とも他の高架につながっていない短い高架は、地面から山なりに上がって下がる「こぶ」になり、他の道と重なる元になるので捨てる。
+    # しぶにしデッキは、まわりの短い高架とあわせて重なりと通り抜けの原因だったので、まとめて捨てる。
+    nishi = [r for r in roads if r.get("name") == "しぶにしデッキ"]
+    nishi_zone = LineString([(nishi[0]["p"][k], nishi[0]["p"][k + 1]) for k in range(0, len(nishi[0]["p"]), 2)]).buffer(30) if nishi else None
+    def pl(r): return LineString([(r["p"][k], r["p"][k + 1]) for k in range(0, len(r["p"]), 2)])
+    for i in lifted:
+        r = roads[i]
+        if r["cls"] in ("footway", "path", "pedestrian") and r["l0"] == 0 and r["l1"] == 0 and CHK(r) < 60: drop.add(i)
+        elif nishi_zone is not None and r["cls"] in ("footway", "path", "pedestrian", "steps") and pl(r).intersects(nishi_zone): drop.add(i)
+    roads = [r for i, r in enumerate(roads) if i not in drop]; print("overlapping elevated paths dropped:", len(drop))
+except ImportError:
+    pass
+
 buildings = []
-for e in json.load(open(RAW / "buildings.json"))["elements"]:
+parts_file = RAW / "parts.json"
+n_outline = None
+for e in json.load(open(RAW / "buildings.json"))["elements"] + (json.load(open(parts_file))["elements"] if parts_file.exists() else []):
     rings = []
     if e["type"] == "way":
         rings = [e.get("geometry") or []]
     else:
         rings = [m["geometry"] for m in e.get("members", []) if m.get("role") == "outer" and m.get("geometry")]
     t = e.get("tags", {})
+    is_part = "building:part" in t and "building" not in t
+    if is_part and (num(t.get("min_height")) or 0) > 5: continue
     h_osm = num(t.get("height"))
     if h_osm is None:
         lv = num(t.get("building:levels"))
@@ -111,7 +150,42 @@ for e in json.load(open(RAW / "buildings.json"))["elements"]:
         elif h_osm is not None: h, src = h_osm, "osm"
         else: h, src = 14.0, "default"
         stat[src] += 1
-        buildings.append({"h": round(max(4.0, min(h, 260.0)), 1), "src": src, "name": t.get("name", ""), "p": pts})
+        buildings.append({"h": round(max(4.0, min(h, 260.0)), 1), "src": src, "name": t.get("name", ""), "p": pts, "part": is_part})
+
+# 外形(building)が building:part でほぼ覆われているなら外形を捨てる(同じ場所に二重に建たないように)
+try:
+    from shapely.geometry import Polygon
+    from shapely.strtree import STRtree
+    def poly_of(b):
+        q = Polygon([(b["p"][i], b["p"][i + 1]) for i in range(0, len(b["p"]), 2)])
+        return q if q.is_valid else q.buffer(0)
+    part_polys = [poly_of(b) for b in buildings if b.get("part")]
+    tree = STRtree(part_polys) if part_polys else None
+    keep = []; dropped = 0
+    for b in buildings:
+        if not b.get("part") and tree is not None:
+            pg = poly_of(b)
+            cover = sum(pg.intersection(part_polys[j]).area for j in tree.query(pg))
+            if pg.area > 1 and cover / pg.area > 0.6: dropped += 1; continue
+        keep.append(b)
+    buildings = keep; print("outlines replaced by parts:", dropped)
+except ImportError:
+    print("shapely なし: building:part の重複除去を省略")
+# 建物どうしが重なっていたら、小さいほうを捨てる(重なった壁・屋根が並ばないように)
+try:
+    polys = [poly_of(b) for b in buildings]
+    tree2 = STRtree(polys); removed = set()
+    order = sorted(range(len(buildings)), key=lambda i: -polys[i].area)   # 大きいものを優先して残す
+    for i in order:
+        if i in removed: continue
+        for j in tree2.query(polys[i]):
+            if j == i or j in removed or polys[j].area > polys[i].area: continue
+            inter = polys[i].intersection(polys[j]).area
+            if inter > 0.12 * polys[j].area: removed.add(j)
+    buildings = [b for k, b in enumerate(buildings) if k not in removed]; print("overlapping buildings removed:", len(removed))
+except NameError:
+    pass
+for b in buildings: b.pop("part", None)
 
 pois = []
 want = {

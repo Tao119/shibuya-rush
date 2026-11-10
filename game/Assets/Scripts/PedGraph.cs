@@ -67,6 +67,17 @@ namespace ShibuyaRush
                     var a = new Vector2(r.p[i], r.p[i + 1]); var b = new Vector2(r.p[i + 2], r.p[i + 3]);
                     float seg = (b - a).magnitude; float s0 = run; run += seg;
                     if (seg < 0.5f) continue;
+                    if (r.lift > 0f && seg > 2.6f)
+                    {   // 高架は、描かれる床(なめらかな坂)と人の高さがずれないよう、2.5m以下に刻んで高さを合わせる
+                        int pc = Mathf.CeilToInt(seg / 2.5f); int prevN = Node(a); float prevS = s0;
+                        for (int k = 1; k <= pc; k++)
+                        {
+                            var pk = Vector2.Lerp(a, b, (float)k / pc); float sk = s0 + seg * k / pc; int nk = k == pc ? Node(b) : Node(pk);
+                            if (nk != prevN) AddEdge(prevN, nk, r.w, !vehicles && r.sig == 1, CityData.Lift(r, prevS, L), CityData.Lift(r, sk, L), false);
+                            prevN = nk; prevS = sk;
+                        }
+                        continue;
+                    }
                     int na = Node(a), nb = Node(b); if (na == nb) continue;
                     AddEdge(na, nb, r.w, !vehicles && r.sig == 1, CityData.Lift(r, s0, L), CityData.Lift(r, run, L), !vehicles && IsCarRoad(r) && r.w >= 6f && r.lift <= 0f);
                 }
@@ -79,7 +90,7 @@ namespace ShibuyaRush
                 if (!keyToNode.TryGetValue(K(new Vector2(r.p[0], r.p[1])), out int sa)) continue;
                 if (!keyToNode.TryGetValue(K(new Vector2(r.p[r.p.Length - 2], r.p[r.p.Length - 1])), out int sb)) continue;
                 if (sa == sb) continue;
-                AddEdge(sa, sb, Mathf.Max(r.w, 2.5f), false, nodeLift[sa], nodeLift[sb]);
+                AddEdge(sa, sb, Mathf.Max(r.w, 2.5f), false, nodeLift[sa], nodeLift[sb]); stairEdges.Add(edges.Count - 1);
             }
             BridgeNearNodes(2.5f);
             FindMainComponent();
@@ -167,6 +178,66 @@ namespace ShibuyaRush
         /// 建物の中を通れる場所か。駅のデッキや階段(高架)の下をくぐる所と、建物の中を抜ける細い歩行者通路(中心線から1.6m以内)だけ。
         /// 車道や路地の幅に合わせて広く許すと、細い道に面した建物の壁をすり抜けられてしまう。
         /// </summary>
+        public float[] freeL, freeR;   // 各辺の中心から左右の壁までの空き幅(最大12m)。人もプレイヤーも、この範囲の中だけを歩く
+
+        /// <summary>各辺について、中心から左右に建物へぶつかるまでの距離を測る。高架の辺は道幅のまま。</summary>
+        public void ComputeFree(System.Func<float, float, bool> blocked)
+        {
+            freeL = new float[edges.Count]; freeR = new float[edges.Count];
+            for (int id = 0; id < edges.Count; id++)
+            {
+                var e = edges[id]; if (e.width <= 0f || !inMain[e.a]) continue;
+                float half = Mathf.Max(0.3f, (e.width - 1f) * 0.5f); freeL[id] = freeR[id] = half;
+                if (blocked == null || e.lA > 0.05f || e.lB > 0.05f) continue;
+                var a = nodes[e.a]; var n = new Vector2(-e.dir.y, e.dir.x);
+                for (int side = 0; side < 2; side++)
+                {
+                    float ext = 12f; float sg = side == 0 ? 1f : -1f;
+                    foreach (float f in new[] { 0.2f, 0.5f, 0.8f })
+                    {
+                        var c = a + e.dir * (e.len * f);
+                        for (float d = 0.5f; d <= ext; d += 1f) { var q = c + n * sg * d; if (blocked(q.x, q.y)) { ext = Mathf.Max(0.3f, d - 1f); break; } }
+                    }
+                    if (side == 0) freeL[id] = Mathf.Max(ext, half * 0.6f); else freeR[id] = Mathf.Max(ext, half * 0.6f);
+                }
+            }
+        }
+
+        /// <summary>(x,z)が、道のまわりの歩ける範囲(道の左右の空き幅)の中か。範囲の外は、人が出ない場所なのでプレイヤーも入れない。</summary>
+        public bool InCorridor(float x, float z, float lift)
+        {
+            if (freeL == null) return true;
+            if (!edgeGrid.TryGetValue(GK(Mathf.FloorToInt(x / GridCell), Mathf.FloorToInt(z / GridCell)), out var l)) return false;
+            var p = new Vector2(x, z);
+            foreach (int id in l)
+            {
+                var e = edges[id]; if (e.width <= 0f) continue; var a = nodes[e.a]; var ab = nodes[e.b] - a;
+                float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f)); var q = a + ab * t;
+                if (Mathf.Abs(Mathf.Lerp(e.lA, e.lB, t) - lift) > 2.2f) continue;
+                float side = Vector2.Dot(p - q, new Vector2(-e.dir.y, e.dir.x)) >= 0f ? freeL[id] : freeR[id];
+                if ((p - q).magnitude <= side + 0.3f) return true;
+            }
+            return false;
+        }
+
+        /// <summary>(x,z)の頭上にある高架の床までの余裕(m)。床の下をくぐる坂や階段で、頭が突き抜けないよう縮めるために使う。</summary>
+        public float Clearance(float x, float z, float lift)
+        {
+            float best = 99f;
+            if (!edgeGrid.TryGetValue(GK(Mathf.FloorToInt(x / GridCell), Mathf.FloorToInt(z / GridCell)), out var l)) return best;
+            var p = new Vector2(x, z);
+            foreach (int id in l)
+            {
+                var e = edges[id]; if (e.width <= 0f || (e.lA < 0.05f && e.lB < 0.05f)) continue;
+                var a = nodes[e.a]; var ab = nodes[e.b] - a; float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f));
+                if ((p - (a + ab * t)).magnitude > Mathf.Max(e.width * 0.5f, 1.5f) + 0.6f) continue;
+                float lv = Mathf.Lerp(e.lA, e.lB, t); if (lv > lift + 1.0f) best = Mathf.Min(best, lv - 0.7f - lift);   // 床の厚み分を引く
+            }
+            return best;
+        }
+
+        public float walkLift;   // いま判定している人の高さ(2階にいる人にだけ、2階の床の下の建物の例外を認める)
+
         public bool OnWalkway(float x, float z)
         {
             if (!edgeGrid.TryGetValue(GK(Mathf.FloorToInt(x / GridCell), Mathf.FloorToInt(z / GridCell)), out var l)) return false;
@@ -177,7 +248,7 @@ namespace ShibuyaRush
                 float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f));
                 float d = (p - (a + ab * t)).magnitude;
                 bool deck = e.lA > 0.05f || e.lB > 0.05f;
-                if (deck && d < Mathf.Max(e.width * 0.5f, 1.5f) + 0.5f) return true;   // 地上の道は、壁の通り抜けを一切許さない
+                if (deck && d < Mathf.Max(e.width * 0.5f, 1.5f) + 0.5f && Mathf.Abs(Mathf.Lerp(e.lA, e.lB, t) - walkLift) < 2.2f) return true;   // 地上の道は、壁の通り抜けを一切許さない
             }
             return false;
         }
@@ -270,9 +341,24 @@ namespace ShibuyaRush
         }
 
         /// <summary>A*。ノード列を返す(経路なしなら空)。</summary>
-        public List<Vector2> Path(Vector2 from, Vector2 to)
+        public readonly List<int> stairEdges = new List<int>();   // 階段の辺(斜面の床を描く)
+        public readonly List<float> lastPathLift = new List<float>();   // 直前に求めた経路の各点の高さ
+
+        /// <summary>高さ lift の階にある、最寄りのノード(2階にいる人が、真下の1階のノードを選ばないように)。</summary>
+        public int NearestNodeAt(Vector2 p, float lift)
         {
-            int s = NearestNode(from), g = NearestNode(to, 0.5f);
+            int best = -1; float bd = float.MaxValue;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                if (!inMain[i] || Mathf.Abs(nodeLift[i] - lift) > 2.6f) continue;
+                float d = (nodes[i] - p).sqrMagnitude; if (d < bd) { bd = d; best = i; }
+            }
+            return best >= 0 ? best : NearestNode(p);
+        }
+
+        public List<Vector2> Path(Vector2 from, Vector2 to, float fromLift = 0f)
+        {
+            int s = fromLift > 0.3f ? NearestNodeAt(from, fromLift) : NearestNode(from), g = NearestNode(to, 0.5f);
             var dist = new Dictionary<int, float> { [s] = 0 }; var prev = new Dictionary<int, int>();
             var pq = new PriorityQueue<int, float>(); pq.Enqueue(s, 0); var closed = new HashSet<int>();
             while (pq.TryDequeue(out int cur, out _))
@@ -286,10 +372,10 @@ namespace ShibuyaRush
                     { dist[nx] = nd; prev[nx] = cur; pq.Enqueue(nx, nd + (nodes[nx] - nodes[g]).magnitude); }
                 }
             }
-            var path = new List<Vector2>();
+            var path = new List<Vector2>(); lastPathLift.Clear();
             if (!prev.ContainsKey(g) && s != g) return path;
-            for (int n = g; ; n = prev[n]) { path.Add(nodes[n]); if (n == s) break; }
-            path.Reverse(); return path;
+            for (int n = g; ; n = prev[n]) { path.Add(nodes[n]); lastPathLift.Add(nodeLift[n]); if (n == s) break; }
+            path.Reverse(); lastPathLift.Reverse(); return path;
         }
     }
 }

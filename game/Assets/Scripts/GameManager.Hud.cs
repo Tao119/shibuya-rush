@@ -276,6 +276,7 @@ namespace ShibuyaRush
             if (fx.SpeedLines > 0.02f)
             {
                 var mat = GUI.matrix; var ctr = new Vector2(W / 2, H / 2); float t = Time.unscaledTime, sh = Mathf.Min(W, H);
+                { var sp = cam.WorldToScreenPoint(pw0() + Vector3.up * 1.1f); if (sp.z > 0f) ctr = new Vector2(sp.x / L.S, (Screen.height - sp.y) / L.S); }   // 集中線の中心は画面の真ん中ではなく、プレイヤーのいる位置(縦画面では特にずれる)
                 for (int i = 0; i < 56; i++)
                 {
                     float ang = i * (360f / 56f) + Mathf.Sin(i * 12.9898f + Mathf.Floor(t * 24f)) * 3f;

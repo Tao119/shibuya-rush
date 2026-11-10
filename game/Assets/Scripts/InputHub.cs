@@ -19,6 +19,7 @@ namespace ShibuyaRush
         public bool stickActive; public Vector2 stickOrigin, stickPos;   // 描画用
         public float camDelta;                // 手動の視点回転(度)
         public bool dash, slip, shove;        // このフレームに押された
+        public bool kbMove;                   // キーボードで移動中
         public bool usingTouch;               // 直近の操作がタッチ
         public float manualCamT;              // 手動で視点を回してからの残り秒(自動追従を止める)
         // ---- HUDが毎フレーム設定する ----
@@ -44,7 +45,7 @@ namespace ShibuyaRush
             if (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.C)) { shove = true; usingTouch = false; }
             float cam = (Input.GetKey(KeyCode.Period) || Input.GetKey(KeyCode.Q) ? 1f : 0f) - (Input.GetKey(KeyCode.Comma) || Input.GetKey(KeyCode.Tab) ? 1f : 0f);
             if (cam != 0f) { camDelta += cam * 120f * dt; manualCamT = 1.2f; }
-            if (kb.sqrMagnitude > 0.01f) usingTouch = false;
+            kbMove = kb.sqrMagnitude > 0.01f; if (kbMove) usingTouch = false;
             // --- ポインタ(タッチ / マウス) ---
             if (Input.touchCount > 0) { usingTouch = true; foreach (var t in Input.touches) Handle(t.fingerId, ToUi(t.position), t.phase == TouchPhase.Began, t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled, true); }
             else

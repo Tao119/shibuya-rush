@@ -270,7 +270,7 @@ namespace ShibuyaRush
                 camYaw += input.camDelta;
                 if (state == GameState.Playing && input.manualCamT <= 0f && input.stick.sqrMagnitude > 0.09f)
                 {
-                    float ang = Vector2.Angle(Vector2.up, input.stick); float k = ang < 60f ? 2.2f : ang < 110f ? 0.7f : 0f;
+                    float ang = Vector2.Angle(Vector2.up, input.stick); float k = input.kbMove ? (ang < 15f ? 2.2f : 0f) : (ang < 60f ? 2.2f : ang < 110f ? 0.7f : 0f);   // キー操作は斜め・横で視点を回さない(円を描いてしまうため)
                     if (k > 0f) camYaw = Mathf.LerpAngle(camYaw, player.yaw, 1f - Mathf.Exp(-k * rdt));
                 }
             }

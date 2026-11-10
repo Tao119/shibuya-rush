@@ -95,6 +95,7 @@ namespace ShibuyaRush
             int pruned = graph.Prune(city.InsideBuilding, false);
             // 崖や急な斜面(傾き0.75以上)は、建物と同じく歩けない場所として扱う
             System.Func<float, float, bool> wall5 = (x, z) => city.Blocked(x, z, 0.5f) || Heightfield.Current.Slope(x, z) > 0.75f, wall4 = (x, z) => city.Blocked(x, z, 0.4f) || Heightfield.Current.Slope(x, z) > 0.75f;
+            int steep = graph.PruneBy((x, z) => Heightfield.Current.Slope(x, z) > 0.9f && !graph.NearStairs(new Vector2(x, z), 3f)); Debug.Log($"[Graph] edges removed on cliffs={steep}");
             int plazaEdges = graph.AddAreas(data.areas, 5f, wall4); Debug.Log($"[Graph] plaza/park lattice edges added={plazaEdges}");
             graph.ComputeFree(wall5);
             int healed = graph.Heal(9f, wall4); Debug.Log($"[Graph] gap-healing edges added={healed}"); var swH = System.Diagnostics.Stopwatch.StartNew(); if (healed > 0) graph.ComputeFree(wall5);

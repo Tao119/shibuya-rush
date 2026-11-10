@@ -115,7 +115,7 @@ namespace ShibuyaRush
         bool SlopeOk(float x, float z)
         {
             var d = new Vector2(x - pos.x, z - pos.y); float dist = d.magnitude; if (dist < 0.02f) return true;
-            if (lift < 1.5f && Heightfield.Current.Slope(x, z) > 0.9f && Heightfield.Current.Slope(pos.x, pos.y) < 0.9f) return false;   // 崖・急斜面には入れない(すでにいる場合は抜け出せる)
+            if (lift < 1.5f && Heightfield.Current.Slope(x, z) > 0.9f && Heightfield.Current.Slope(pos.x, pos.y) < 0.9f && !graph.NearStairs(new Vector2(x, z), 3f)) return false;   // 崖・急斜面には入れない(すでにいる場合は抜け出せる)
             float g1 = graph.ReachableLift(x, z, lift), g0 = graph.ReachableLift(pos.x, pos.y, lift); float slope = (g1 - g0) / dist;
             return slope < 0.75f && (allowDrop || slope > -1.0f);
         }

@@ -116,6 +116,20 @@ namespace ShibuyaRush
             return removed;
         }
 
+        /// <summary>歩けない場所(崖など)を通る地上の辺を取り除く。経路やボットが、プレイヤーの入れない道へ案内しないように。</summary>
+        public int PruneBy(System.Func<float, float, bool> bad)
+        {
+            int removed = 0;
+            for (int id = 0; id < edges.Count; id++)
+            {
+                var e = edges[id]; if (e.width <= 0f || e.lA > 0.05f || e.lB > 0.05f) continue; var a = nodes[e.a]; bool hit = false;
+                for (float t = 0f; t <= e.len && !hit; t += 1.5f) { var p = a + e.dir * t; hit = bad(p.x, p.y); }
+                if (!hit) continue; adj[e.a].Remove(id); adj[e.b].Remove(id); e.width = 0f; edges[id] = e; removed++;
+            }
+            if (removed > 0) { FindMainComponent(); edgeGrid.Clear(); BuildEdgeGrid(); }
+            return removed;
+        }
+
         /// <summary>ほぼ接している別ノードどうしを短い辺でつなぐ(OSMの座標ずれで道が切れるのを防ぐ)。</summary>
         void BridgeNearNodes(float r)
         {
@@ -465,6 +479,22 @@ namespace ShibuyaRush
         }
 
         /// <summary>A*。ノード列を返す(経路なしなら空)。</summary>
+        HashSet<int> stairSet;
+        /// <summary>階段(急な坂の道)のすぐそばか。地形が急でも、階段は登れる。</summary>
+        public bool NearStairs(Vector2 p, float r)
+        {
+            if (stairSet == null) stairSet = new HashSet<int>(stairEdges); if (stairSet.Count == 0) return false;
+            int cx0 = Mathf.FloorToInt((p.x - r) / GridCell), cx1 = Mathf.FloorToInt((p.x + r) / GridCell), cz0 = Mathf.FloorToInt((p.y - r) / GridCell), cz1 = Mathf.FloorToInt((p.y + r) / GridCell);
+            for (int cx = cx0; cx <= cx1; cx++) for (int cz = cz0; cz <= cz1; cz++)
+                if (edgeGrid.TryGetValue(GK(cx, cz), out var l))
+                    foreach (int id in l)
+                    {
+                        if (!stairSet.Contains(id)) continue; var e = edges[id]; var a = nodes[e.a]; var ab = nodes[e.b] - a;
+                        float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 1e-6f)); if ((p - (a + ab * t)).magnitude < r) return true;
+                    }
+            return false;
+        }
+
         public readonly List<int> stairEdges = new List<int>();   // 階段の辺(斜面の床を描く)
         public readonly List<float> lastPathLift = new List<float>();   // 直前に求めた経路の各点の高さ
 

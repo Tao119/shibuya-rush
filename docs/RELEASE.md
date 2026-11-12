@@ -1,5 +1,15 @@
 # SHIBUYA RUSH 公開までの課題と進み具合
 
+## 公開の方針(更新)
+
+アプリ(App Store)ではなく、Webゲームとして公開する。tao-matsumr.com に作るゲーム集約ページ(my-web-site リポジトリ)から /shibuya-rush/ で遊べる。広告は Google AdSense のゲーム向け広告(動画のご褒美と全画面広告)を使う。
+
+- Web版のビルド: `Unity -batchmode -quit -projectPath game -executeMethod ProjectSetup.BuildWeb` で Build/Web に出力。my-web-site の public/shibuya-rush にコピーする。
+- 広告の有効化: game/Assets/WebGLTemplates/Shibuya/ads-config.js の SHIBUYA_ADSENSE_CLIENT に AdSense のパブリッシャーID(ca-pub-…)を入れる。審査中は SHIBUYA_ADS_TEST を true のままにする。
+- AdSense のサイト承認後に、ads.txt を my-web-site の public に置く。
+- プライバシーポリシーは my-web-site の /privacy に作成済み(公開後に内容を確認する)。
+- Webビルドの落とし穴: WebGLの例外処理は ExplicitlyThrownExceptionsOnly にする(None だとエンジン内部の例外で止まる)。CreatePrimitive は使わず Prim.cs を使う。ビルドを作り直したら、ブラウザのキャッシュを避けて確認する(古いビルドのファイルが使われて、読み込みエラーに見える)。
+
 現在の状態: **まだ公開できる水準ではない**。実機(iPhone)で遊べるところまでは来ているが、下の「公開前に必須」がそろっていない。
 
 ## 公開前に必須(ブロッカー)

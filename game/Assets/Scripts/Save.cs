@@ -34,7 +34,8 @@ namespace ShibuyaRush
             get
             {
                 if (d != null) return d;
-                try { d = JsonUtility.FromJson<SaveData>(PlayerPrefs.GetString(Key, "")); } catch { d = null; }
+                string raw = PlayerPrefs.GetString(Key, "");
+                if (!string.IsNullOrEmpty(raw)) { try { d = JsonUtility.FromJson<SaveData>(raw); } catch { d = null; } }   // 空文字はWebGLで例外になるため先に除く
                 if (d == null) d = new SaveData();
                 if (d.up == null || d.up.Length < Meta.Upgrades.Length) { var n = new int[Meta.Upgrades.Length]; if (d.up != null) Array.Copy(d.up, n, d.up.Length); d.up = n; }
                 if (d.mKind == null || d.mKind.Length != 3) { d.mKind = new int[3]; d.mTarget = new int[3]; d.mProg = new int[3]; d.mDone = new bool[3]; d.missionDay = ""; }

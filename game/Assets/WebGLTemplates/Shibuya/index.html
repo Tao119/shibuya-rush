@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>SHIBUYA RUSH</title>
+<meta name="description" content="ハチ公前から、渋谷の人ごみをかき分けて目的地へ急げ! ブラウザで遊べるダッシュゲーム。">
+<style>
+  html,body{margin:0;height:100%;background:#0d1117;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+  #unity-canvas{width:100%;height:100%;display:block;background:#0d1117}
+  #boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font:600 20px sans-serif;background:#0d1117;z-index:5}
+  #bar{width:60%;max-width:360px;height:10px;background:#2a3140;border-radius:6px;margin-top:16px;overflow:hidden}
+  #fill{height:100%;width:0;background:#ff9a2e}
+</style>
+</head>
+<body>
+<div id="boot"><div>SHIBUYA RUSH</div><div id="bar"><div id="fill"></div></div></div>
+<canvas id="unity-canvas" tabindex="-1"></canvas>
+<script src="ads-config.js"></script>
+<script>
+// ---- 広告(Google AdSense ゲーム向け広告) ----
+(function () {
+  var client = window.SHIBUYA_ADSENSE_CLIENT || "";
+  var A = window.shibuyaAds = { enabled: false, show: function () {} };
+  function send(r) { try { window.unityInstance.SendMessage("AdBridge", "OnAdResult", r); } catch (e) {} }
+  if (!client) return;
+  window.adsbygoogle = window.adsbygoogle || [];
+  window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+  var s = document.createElement("script"); s.async = true; s.crossOrigin = "anonymous";
+  s.setAttribute("data-ad-client", client);
+  if (window.SHIBUYA_ADS_TEST) s.setAttribute("data-adbreak-test", "on");
+  s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=" + encodeURIComponent(client);
+  document.head.appendChild(s);
+  window.adConfig({ preloadAdBreaks: "on", sound: "on", onReady: function () {} });
+  A.enabled = true;
+  A.show = function (kind) {
+    var done = false, rewarded = false;
+    function fin(r) { if (done) return; done = true; send(r); }
+    if (kind === 0) {
+      window.adBreak({
+        type: "reward", name: "reward",
+        beforeReward: function (show) { show(); },
+        adViewed: function () { rewarded = true; },
+        adDismissed: function () { rewarded = false; },
+        adBreakDone: function (info) { fin(rewarded ? "reward" : "fail"); }
+      });
+    } else {
+      window.adBreak({ type: "next", name: "next", adBreakDone: function () { fin("closed"); } });
+    }
+    setTimeout(function () { fin(kind === 0 ? "fail" : "closed"); }, 30000);   // 広告が出ない場合の保険
+  };
+})();
+</script>
+<script src="Build/{{{ LOADER_FILENAME }}}"></script>
+<script>
+  var cfg = {
+    dataUrl: "Build/{{{ DATA_FILENAME }}}",
+    frameworkUrl: "Build/{{{ FRAMEWORK_FILENAME }}}",
+#if USE_WASM
+    codeUrl: "Build/{{{ CODE_FILENAME }}}",
+#endif
+#if MEMORY_FILENAME
+    memoryUrl: "Build/{{{ MEMORY_FILENAME }}}",
+#endif
+#if SYMBOLS_FILENAME
+    symbolsUrl: "Build/{{{ SYMBOLS_FILENAME }}}",
+#endif
+    streamingAssetsUrl: "StreamingAssets",
+    companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+    productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+    productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}}
+  };
+  createUnityInstance(document.querySelector("#unity-canvas"), cfg, function (p) {
+    document.getElementById("fill").style.width = (p * 100) + "%";
+  }).then(function (u) {
+    window.unityInstance = u; document.getElementById("boot").style.display = "none";
+  }).catch(function (m) { document.getElementById("boot").textContent = "読み込みに失敗しました: " + m; });
+</script>
+</body>
+</html>

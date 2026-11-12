@@ -183,6 +183,25 @@ public static class ProjectSetup
         if (rep.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded) EditorApplication.Exit(1);
     }
 
+    /// <summary>Web版(WebGL)を Build/Web に出力する。広告つきのページ用テンプレートを使う。</summary>
+    public static void BuildWeb()
+    {
+        Setup();
+        PlayerSettings.WebGL.template = "PROJECT:Shibuya";
+        PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
+        PlayerSettings.WebGL.decompressionFallback = true;
+        PlayerSettings.WebGL.dataCaching = true;
+        PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly;   // Noneだと、エンジン内部の例外で止まる
+        bool wdev = System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-webdev") >= 0;
+        if (wdev) PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.FullWithStacktrace;
+        PlayerSettings.WebGL.memorySize = 512;
+        PlayerSettings.stripEngineCode = true;
+        var opts = new BuildPlayerOptions { scenes = new[] { "Assets/Scenes/Main.unity" }, locationPathName = "../Build/Web", target = BuildTarget.WebGL, options = (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-webdev") >= 0 ? BuildOptions.Development : BuildOptions.None) };
+        var rep = BuildPipeline.BuildPlayer(opts);
+        Debug.Log("BUILD_RESULT_WEB " + rep.summary.result + " size=" + rep.summary.totalSize);
+        if (rep.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded) EditorApplication.Exit(1);
+    }
+
     public static void BuildMac()
     {
         Setup();

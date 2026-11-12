@@ -78,7 +78,7 @@ namespace ShibuyaRush
         {
             var hf = Heightfield.Current;
             // 範囲外まで広がる下敷きの平面(標高格子の外側を埋める)
-            var far = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            var far = Prim.Make(PrimitiveType.Plane);
             Object.Destroy(far.GetComponent<Collider>()); far.name = "GroundFar"; far.transform.SetParent(parent);
             far.transform.localScale = new Vector3(400, 1, 400); far.transform.position = new Vector3(0, hf.Loaded ? -8f : -0.05f, 0);
             far.GetComponent<MeshRenderer>().sharedMaterial = mat;

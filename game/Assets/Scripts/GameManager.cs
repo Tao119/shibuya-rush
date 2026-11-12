@@ -54,6 +54,11 @@ namespace ShibuyaRush
                 if (args[i] == "-quitafter" && i + 1 < args.Length) quitAfter = float.Parse(args[i + 1]);
             }
             if (Application.isMobilePlatform) touchMode = true;
+            bool web = Application.platform == RuntimePlatform.WebGLPlayer;
+            if (web && Input.touchSupported) touchMode = true;         // スマホのブラウザ
+            lowSpec = touchMode || web;                                  // Webは全て軽量設定(WebGLは1スレッドで重いため)
+            if (lowSpec)
+            {   if (!crowdArg) crowdCount = 4500; if (!carsArg) carCount = 120; }
             if (touchMode)
             {   // スマホ向けの軽量設定(人と車を減らし、描画距離と影を絞る)
                 if (!crowdArg) crowdCount = 6000; if (!carsArg) carCount = 150;
@@ -110,7 +115,7 @@ namespace ShibuyaRush
             crowdHr = new HumanoidRenderer(tints, M("Pants"), M("Skin"));
             playerHr = new HumanoidRenderer(new[] { M("PlayerTint") }, M("PlayerPants"), M("Skin"));
             crowd = new Crowd(graph, crowdHr, crowdCount, 12345, (x, z) => city.Blocked(x, z, 0.5f));
-            if (touchMode) ApplyMobileProfile();
+            if (lowSpec) ApplyMobileProfile();
             crowd.Solid = (x, z) => city.SolidPush(x, z, 0.3f); crowd.InBuilding = city.InsideBuilding;
             yield return Boot(0.84f, "街の小物を置いています");
             props = new Props(data, city, graph, city.Root.transform, touchMode); if (touchMode) props.DrawDist = 80f;
@@ -119,7 +124,7 @@ namespace ShibuyaRush
             traffic = new Traffic(carGraph, graph, crowd, carCount, carMats, M("CarCabin"));
             yield return Boot(0.92f, "もうすぐ始まります");
             player = new Player(city, crowd, graph, Vector2.zero) { yaw = 0 };
-            fx = new SkillFx(this, cam, M("FxAdd"), new[] { M("GhostA"), M("GhostB"), M("GhostC") }, M("Skin"), touchMode);   // スマホは重いポストエフェクトを切る
+            fx = new SkillFx(this, cam, M("FxAdd"), new[] { M("GhostA"), M("GhostB"), M("GhostC") }, M("Skin"), lowSpec);   // スマホ・Webは重いポストエフェクトを切る
             Store.NoPersist = noPersist || autoplay; if (resetSave) Store.Reset();
             if (giveCoins > 0) { Store.D.coins += giveCoins; Store.Commit(); }
             fx.SetAudio(Store.D.music, Store.D.sfx); Ads.Init();
@@ -130,9 +135,9 @@ namespace ShibuyaRush
             arrow3d.AddComponent<MeshRenderer>().sharedMaterial = M("Goal"); arrow3d.SetActive(false);
             arrowTex = MakeArrowTex(); vigTex = MakeVignetteTex();
             ringMat = new Material(M("FxAdd")); ringMat.SetTexture("_BaseMap", SkillFx.Radial(128, 0.40f, 0.50f, true));
-            GameObject Quad(string n) { var q = GameObject.CreatePrimitive(PrimitiveType.Quad); Destroy(q.GetComponent<Collider>()); q.name = n; q.GetComponent<MeshRenderer>().sharedMaterial = new Material(ringMat); q.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; q.SetActive(false); return q; }
+            GameObject Quad(string n) { var q = Prim.Make(PrimitiveType.Quad); Destroy(q.GetComponent<Collider>()); q.name = n; q.GetComponent<MeshRenderer>().sharedMaterial = new Material(ringMat); q.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; q.SetActive(false); return q; }
             playerRing = Quad("PlayerRing"); goalRing = Quad("GoalRing");
-            beam = GameObject.CreatePrimitive(PrimitiveType.Cylinder); Destroy(beam.GetComponent<Collider>());
+            beam = Prim.Make(PrimitiveType.Cylinder); Destroy(beam.GetComponent<Collider>());
             beam.GetComponent<MeshRenderer>().sharedMaterial = M("Goal"); beam.SetActive(false);
             miniRt = new RenderTexture(256, 256, 16); var mg = new GameObject("MiniCam");
             miniCam = mg.AddComponent<Camera>(); miniCam.orthographic = true; miniCam.orthographicSize = 110; miniCam.targetTexture = miniRt;
@@ -218,6 +223,7 @@ namespace ShibuyaRush
         }
 
         /// <summary>スマホ向け: 人と車の描画距離、影、解像度を絞る。</summary>
+        bool lowSpec;
         void ApplyMobileProfile()
         {
             crowd.NearDist = 28f; crowd.FarDist = 120f; crowd.ActiveRadius = 120f;

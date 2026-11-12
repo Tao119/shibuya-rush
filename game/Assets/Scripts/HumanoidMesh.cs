@@ -53,9 +53,7 @@ namespace ShibuyaRush
 
         public static Mesh Sphere(float radius)
         {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            var src = go.GetComponent<MeshFilter>().sharedMesh; Object.Destroy(go);
-            var m = Object.Instantiate(src); var v = m.vertices;
+            var m = Object.Instantiate(Prim.MeshOf(PrimitiveType.Sphere)); var v = m.vertices;
             for (int i = 0; i < v.Length; i++) v[i] *= radius * 2f;
             m.vertices = v; m.RecalculateBounds(); return m;
         }

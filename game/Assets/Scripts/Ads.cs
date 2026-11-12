@@ -22,7 +22,9 @@ namespace ShibuyaRush
 
         public static void Init()
         {
-#if SHIBUYA_ADMOB
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try { Real = WebAdProvider.Create(); if (Real != null) Real.Init(); } catch (Exception e) { Debug.LogWarning("[Ads] web init failed: " + e.Message); Real = null; }
+#elif SHIBUYA_ADMOB
             try { Real = new AdMobProvider(); Real.Init(); } catch (Exception e) { Debug.LogWarning("[Ads] init failed: " + e.Message); Real = null; }
 #endif
         }
@@ -34,6 +36,36 @@ namespace ShibuyaRush
             float t = Time.realtimeSinceStartup; return t - LastInterstitial > InterstitialGap && t - LastRewarded > AfterRewardedGap;
         }
     }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+    /// <summary>
+    /// Web版の広告。ページ側(WebGLTemplates/Shibuya/index.html)の Google AdSense「ゲーム向け広告(adBreak)」を呼ぶ。
+    /// ads-config.js に自分の AdSense のID(ca-pub-…)を入れると有効になる。空のあいだは、開発用のダミー広告になる。
+    /// </summary>
+    public class WebAdProvider : MonoBehaviour, IAdProvider
+    {
+        [System.Runtime.InteropServices.DllImport("__Internal")] static extern int WebAds_Enabled();
+        [System.Runtime.InteropServices.DllImport("__Internal")] static extern void WebAds_Show(int kind);   // 0=ごほうび動画 1=全画面
+        Action onReward, onFail, onClosed;
+        public static IAdProvider Create()
+        {
+            if (WebAds_Enabled() == 0) return null;
+            var go = new GameObject("AdBridge"); DontDestroyOnLoad(go); return go.AddComponent<WebAdProvider>();
+        }
+        public string Name => "AdSense(Web)";
+        public void Init() { }
+        public bool RewardedReady => true;
+        public bool InterstitialReady => true;
+        public void ShowRewarded(Action reward, Action fail) { onReward = reward; onFail = fail; WebAds_Show(0); }
+        public void ShowInterstitial(Action closed) { onClosed = closed; WebAds_Show(1); }
+        // ページ側から SendMessage で呼ばれる
+        public void OnAdResult(string r)
+        {
+            var rw = onReward; var f = onFail; var c = onClosed; onReward = onFail = onClosed = null;
+            if (r == "reward") rw?.Invoke(); else if (r == "fail") f?.Invoke(); else if (r == "closed") { c?.Invoke(); f?.Invoke(); }
+        }
+    }
+#endif
 
 #if SHIBUYA_ADMOB
     /// <summary>

@@ -48,7 +48,7 @@ namespace ShibuyaRush
             var ringTex = Radial(128, 0.40f, 0.50f, true); var softTex = Radial(64, 0f, 0.5f, false);
             for (int i = 0; i < 5; i++)
             {
-                var go = GameObject.CreatePrimitive(PrimitiveType.Quad); UnityEngine.Object.Destroy(go.GetComponent<Collider>());
+                var go = Prim.Make(PrimitiveType.Quad); UnityEngine.Object.Destroy(go.GetComponent<Collider>());
                 go.transform.SetParent(host.transform); go.SetActive(false);
                 var m = new Material(fxAdd); m.SetTexture("_BaseMap", ringTex); go.GetComponent<MeshRenderer>().sharedMaterial = m;
                 go.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;

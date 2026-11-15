@@ -10,7 +10,7 @@ namespace ShibuyaRush
         public Vector2 start, goal; public float goalLift, pathLen, limit, par3, par2;
         public List<Vector2> route = new List<Vector2>();
         public int mod;                    // 0=なし 1=コイン2倍 2=時間きびしめ 3=ノーダメージ
-        public bool boss, free;            // boss=ライバルとの勝負
+        public bool boss, free, tutorial;  // boss=ライバルとの勝負 / tutorial=はじめての操作練習(時間制限なし)
         public float rivalTime;
         public int seed;
         public int BaseReward => 25 + number * 3;
@@ -141,6 +141,13 @@ namespace ShibuyaRush
             sp.limit = Mathf.Max(sp.limit, sp.par2 + 25f);
             sp.rivalTime = sp.boss ? Mathf.Lerp(sp.par2, sp.par3, Mathf.Clamp01((n - 5) / 50f)) * 1.0f : 0f;
             sp.title = sp.boss ? "ライバル勝負 vs " + BossNames[(n / 5) % BossNames.Length] : "LEVEL " + n;
+            return sp;
+        }
+
+        /// <summary>はじめての操作練習。LEVEL 1 と同じ道(ハチ公前から近い名所)で、時間制限なし。</summary>
+        public LevelSpec MakeTutorial()
+        {
+            var sp = Make(1); sp.number = 0; sp.key = "tutorial"; sp.free = true; sp.tutorial = true; sp.limit = 9999f; sp.boss = false; sp.mod = 0; sp.modText = ""; sp.title = "チュートリアル";
             return sp;
         }
 

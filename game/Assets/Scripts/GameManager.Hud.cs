@@ -157,6 +157,7 @@ namespace ShibuyaRush
                 DrawPops(L.S);
                 DrawRivalTag();
                 DrawHint();
+                DrawTutorial();
                 if (hitFlash > 0) Label(new Rect(0, H / 2 + 50, W, 60), "車に接触!  +3秒", new GUIStyle(big) { fontSize = L.portrait ? 40 : 54 }, new Color(1, 0.35f, 0.3f));
                 DrawBanner(W, H);
                 if (state == GameState.Countdown) DrawCountdown(W, H);
@@ -219,9 +220,9 @@ namespace ShibuyaRush
 
         void DrawSkills()
         {
-            Skill(L.sDash, "Z", "ダッシュ", iconBolt, player.dashCd, player.DashCd, player.dashT > 0, new Color(1f, .72f, .2f));
-            Skill(L.sSlip, "X", "すり抜け", iconGhost, player.slipCd, player.SlipCd, player.Slipping, new Color(.4f, .85f, 1f));
-            Skill(L.sShove, "C", "かき分け", iconBlast, player.shoveCd, player.ShoveCd, player.shoveFx > 0, new Color(1f, .45f, .5f));
+            Skill(L.sDash, "Shift", "ダッシュ", iconBolt, player.dashCd, player.DashCd, player.dashT > 0, new Color(1f, .72f, .2f));
+            Skill(L.sSlip, "Space", "すり抜け", iconGhost, player.slipCd, player.SlipCd, player.Slipping, new Color(.4f, .85f, 1f));
+            Skill(L.sShove, "E", "かき分け", iconBlast, player.shoveCd, player.ShoveCd, player.shoveFx > 0, new Color(1f, .45f, .5f));
         }
 
         void Skill(Vector2 c, string key, string name, Texture2D icon, float cd, float total, bool active, Color col)

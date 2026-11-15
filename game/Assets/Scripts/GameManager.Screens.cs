@@ -188,6 +188,9 @@ namespace ShibuyaRush
                 if (badge) Label(new Rect(nr.xMax - 18, nr.y - 8, 26, 26), "!", St(18), Color.white);
             }
             var sg = new Rect(L.x0 + m, lp.yMax + 8, 128, 52); if (Btn(sg, "せってい", new Color(.4f, .38f, .62f, .95f), 18, !modal)) panel = UiPanel.Settings;
+            var hp = new Rect(sg.x, sg.yMax + 8, 128, 52); if (Btn(hp, "あそびかた", new Color(.35f, .62f, .85f, .97f), 18, !modal)) StartLevel(levels.MakeTutorial());
+            if (!d.tutorialDone) { Disc(new Rect(hp.xMax - 18, hp.y - 8, 26, 26), new Color(1f, .2f, .25f)); Label(new Rect(hp.xMax - 18, hp.y - 8, 26, 26), "!", St(18), Color.white); }
+            if (WebEnv.HasPortal) { var pp = new Rect(hp.x, hp.yMax + 8, 128, 52); if (Btn(pp, "ゲーム一覧", new Color(.9f, .6f, .2f, .97f), 18, !modal)) WebEnv.GoPortal(); }
             // 目的地カード
             float cw = po ? Mathf.Min(W - 28f, 460f) : 420f; float chh = 148f;
             var card = po ? new Rect(W / 2 - cw / 2, ny - 14f - chh, cw, chh) : new Rect(L.x0 + m + 6f, (L.y0 + L.y1) / 2f - chh / 2f + 30f, cw, chh);
@@ -200,7 +203,7 @@ namespace ShibuyaRush
             Label(new Rect(card.x + 14, card.y + 94, card.width - 28, 26), line, St(15, TextAnchor.MiddleLeft), new Color(.8f, 1f, .85f));
             if (homeSpec.mod > 0) Chip(new Rect(card.xMax - 150, card.y + 8, 138, 28), homeSpec.modText, new Color(1f, .5f, .35f));
             if (homeSpec.boss) Chip(new Rect(card.xMax - 150, card.y + 8, 138, 28), "ライバルより先に!", new Color(.55f, .3f, 1f));
-            Label(new Rect(card.x + 14, card.y + 118, card.width - 28, 24), touchMode ? "画面をドラッグして走る / 右下でスキル" : "矢印/WASD/ドラッグで走る  Z/Shift ダッシュ  X/Space すり抜け  C/E かき分け", St(13, TextAnchor.MiddleLeft), new Color(1, 1, 1, .7f));
+            Label(new Rect(card.x + 14, card.y + 118, card.width - 28, 24), touchMode ? "画面をドラッグして走る / 右下でスキル" : "WASD 移動 ・ Shift ダッシュ ・ Space すり抜け ・ E かき分け", St(13, TextAnchor.MiddleLeft), new Color(1, 1, 1, .7f));
             // 次のもくひょう(貯めて買うものの進み具合)
             if (NextWish(out var wn, out int wp))
             {
@@ -478,8 +481,8 @@ namespace ShibuyaRush
             }
             else if (res.claimed) { y += 4f; }
             // ボタン
-            float bh = touchMode ? 58f : 52f; float by = Mathf.Max(y + 2f, right.yMax - (spec.free ? bh : bh * 2 + 8f) - 2f); if (!two) by = Mathf.Max(y + 2f, right.yMax - bh * 2 - 8f);
-            bool canNext = !spec.free; float half = (right.width - 12 - 8f) / 2f;
+            float bh = touchMode ? 58f : 52f; float by = Mathf.Max(y + 2f, right.yMax - (spec.free && !spec.tutorial ? bh : bh * 2 + 8f) - 2f); if (!two) by = Mathf.Max(y + 2f, right.yMax - bh * 2 - 8f);
+            bool canNext = !spec.free || spec.tutorial; float half = (right.width - 12 - 8f) / 2f;
             if (canNext) { if (Btn(new Rect(right.x + 6, by, right.width - 12, bh), touchMode ? "つぎのレベル" : "つぎのレベル [N]", new Color(.25f, .78f, .38f), 22) && t > 0.9f) { rouletteFrozen = -1f; AfterRun(() => StartLevel(levels.Make(Store.D.level))); } by += bh + 8f; }
             float third = (right.width - 12f - 16f) / 3f;
             if (Btn(new Rect(right.x + 6, by, third, bh), touchMode ? "もう一度" : "もう一度[R]", Candy[3], 15) && t > 0.9f) { rouletteFrozen = -1f; AfterRun(() => StartLevel(spec)); }
@@ -510,7 +513,7 @@ namespace ShibuyaRush
         // ================== ポーズ ==================
         void DrawPause(float W, float H)
         {
-            Dim(0.6f); float cw = Mathf.Min(W - 20f, 420f), chh = 460f; var p = new Rect(W / 2 - cw / 2, (L.y0 + L.y1) / 2f - chh / 2f, cw, chh); Panel(p, new Color(.17f, .15f, .38f, .98f), 6f);
+            Dim(0.6f); float cw = Mathf.Min(W - 20f, 420f), chh = 520f; var p = new Rect(W / 2 - cw / 2, (L.y0 + L.y1) / 2f - chh / 2f, cw, chh); Panel(p, new Color(.17f, .15f, .38f, .98f), 6f);
             Label(new Rect(p.x, p.y + 10, p.width, 54), "ポーズ", St(36), Color.white); float y = p.y + 74f; float bw = p.width - 40f;
             if (Btn(new Rect(p.x + 20, y, bw, 52), "つづける", new Color(.25f, .78f, .38f), 22)) Resume(); y += 60f;
             if (Btn(new Rect(p.x + 20, y, bw, 48), "やりなおす", Candy[3], 20)) StartLevel(spec); y += 56f;
@@ -519,6 +522,8 @@ namespace ShibuyaRush
             var d = Store.D; float hw = (bw - 8f) / 2f;
             if (Btn(new Rect(p.x + 20, y, hw, 44), "おんがく " + (d.music ? "ON" : "OFF"), d.music ? Candy[2] : new Color(.5f, .45f, .6f), 16)) { d.music = !d.music; fx.SetAudio(d.music, d.sfx); Store.Commit(); }
             if (Btn(new Rect(p.x + 28 + hw, y, hw, 44), "こうかおん " + (d.sfx ? "ON" : "OFF"), d.sfx ? Candy[2] : new Color(.5f, .45f, .6f), 16)) { d.sfx = !d.sfx; fx.SetAudio(d.music, d.sfx); Store.Commit(); }
+            if (spec.tutorial) { y += 52f; if (Btn(new Rect(p.x + 20, y, bw, 44), "チュートリアルをおわる", Candy[0], 17)) TutQuit(); }
+            if (WebEnv.HasPortal) { y += 52f; if (Btn(new Rect(p.x + 20, y, bw, 44), "ゲーム一覧にもどる", new Color(.9f, .6f, .2f), 17)) WebEnv.GoPortal(); }
         }
     }
 }

@@ -55,7 +55,7 @@ namespace ShibuyaRush
             }
             if (Application.isMobilePlatform) touchMode = true;
             bool web = Application.platform == RuntimePlatform.WebGLPlayer;
-            if (web && Input.touchSupported) touchMode = true;         // スマホのブラウザ
+            if (web && WebEnv.IsTouch()) touchMode = true;              // スマホ・タブレットのブラウザ(PCは false。Input.touchSupported はPCでも true になる)
             lowSpec = touchMode || web;                                  // Webは全て軽量設定(WebGLは1スレッドで重いため)
             if (lowSpec)
             {   if (!crowdArg) crowdCount = 4500; if (!carsArg) carCount = 120; }
@@ -164,7 +164,7 @@ namespace ShibuyaRush
                 homeSpec = levels.Make(Store.D.level); player.pos = homeSpec.start; player.lift = graph.nodeLift[graph.NearestNode(homeSpec.start)];
                 if (panelArg == "shop") panel = UiPanel.Shop; else if (panelArg == "missions") panel = UiPanel.Missions; else if (panelArg == "settings") panel = UiPanel.Settings; else if (panelArg == "free") panel = UiPanel.Free;
                 dailyPopup = (panelArg == "daily") || (panelArg == "" && Store.GiftReady && !menuShot && Store.D.plays > 0);
-                if (Store.D.plays == 0 && panelArg == "" && !menuShot && !demoWin && !demoFail) StartLevel(homeSpec);   // 初回はメニューを見せず、すぐ走り出す
+                if (Store.D.plays == 0 && panelArg == "" && !menuShot && !demoWin && !demoFail) StartLevel(Store.D.tutorialDone ? homeSpec : levels.MakeTutorial());   // 初回はメニューを見せず、操作練習のコースをすぐ走り出す
                 if (demoWin || demoFail) StartLevel(homeSpec);
             }
         }
@@ -276,7 +276,7 @@ namespace ShibuyaRush
             bool frozen = state == GameState.Paused; if (frozen) { dt = 0f; rdt = 0f; }
             ComputeLayout(); input.uiScale = L.S; input.playing = state == GameState.Playing && !autoplay;
             input.btnDash = new InputHub.Circle { c = L.sDash, r = L.sR }; input.btnSlip = new InputHub.Circle { c = L.sSlip, r = L.sR }; input.btnShove = new InputHub.Circle { c = L.sShove, r = L.sR };
-            input.noDrive.Clear(); input.noDrive.Add(L.timer); input.noDrive.Add(L.chip); input.noDrive.Add(L.minimap); input.noDrive.Add(L.pause);
+            input.noDrive.Clear(); if (spec != null && spec.tutorial) input.noDrive.Add(TutPanel()); input.noDrive.Add(L.timer); input.noDrive.Add(L.chip); input.noDrive.Add(L.minimap); input.noDrive.Add(L.pause);
             input.Update(rdt);
             if (input.usingTouch && !touchMode) touchMode = true;
             if (fakeJoy) { input.stickActive = true; input.stickOrigin = new Vector2(L.x0 + 130f, L.y1 - 110f); input.stickPos = input.stickOrigin + new Vector2(38f, -30f); }
@@ -303,6 +303,7 @@ namespace ShibuyaRush
                 if (!autoplay && (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P))) Pause();
                 if (!autoplay && Input.GetKeyDown(KeyCode.U)) UnstickPlayer();
                 wish = autoplay ? BotWish(out dash, out slip, out shove) : ReadWish(out dash, out slip, out shove);
+                if (spec.tutorial) TutUpdate(rdt);
                 if (!fx.ClockFrozen) raceT += dt;
                 pickups.Tick(dt, player.pos, player.lift, Mathf.Max(magnetBase, magnetT > 0f ? 8f : 0f));
                 ghost.Record(dt, player.pos, player.yaw, player.lift); ghostShown = ghost.Sample(raceT);
@@ -322,7 +323,7 @@ namespace ShibuyaRush
             else if (state == GameState.Finished || state == GameState.Failed)
             {
                 if (Input.GetKeyDown(KeyCode.R)) StartLevel(spec);
-                if (state == GameState.Finished && !spec.free && Input.GetKeyDown(KeyCode.N)) StartLevel(levels.Make(Store.D.level));
+                if (state == GameState.Finished && (!spec.free || spec.tutorial) && Input.GetKeyDown(KeyCode.N)) StartLevel(levels.Make(Store.D.level));
                 if (Input.GetKeyDown(KeyCode.M)) GoHome();
             }
             else if (state == GameState.Paused)

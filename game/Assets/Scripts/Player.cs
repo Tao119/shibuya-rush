@@ -17,7 +17,7 @@ namespace ShibuyaRush
         public float dashT, slipT, shoveFx, stagger;                 // 発動中・よろけの残り秒
         public float dashCd, slipCd, shoveCd;                        // クールダウン残り秒
         public bool evDash, evSlip, evShove, evBump, evBump2;                 // 発動・衝突の通知(GameManagerが読んで消す)
-        public int bumps, plowed, shoved; public Vector2 bumpDir;
+        public int bumps, plowed, shoved, dashN, slipN, shoveN; public Vector2 bumpDir;
         // アップグレードと一時効果
         public float speedMul = 1f, dashCdMul = 1f, slipCdMul = 1f, shoveCdMul = 1f, shoveRange = 1f, shieldT;
         public int skillUses; public bool allowDrop;   // 自動テスト用: 2階の端から飛び降りてもよい(人が操作するときは落ちない)
@@ -34,9 +34,9 @@ namespace ShibuyaRush
             dashT = Mathf.Max(0, dashT - dt); slipT = Mathf.Max(0, slipT - dt); shoveFx = Mathf.Max(0, shoveFx - dt);
             stagger = Mathf.Max(0, stagger - dt); bumpCd = Mathf.Max(0, bumpCd - dt);
             shieldT = Mathf.Max(0, shieldT - dt);
-            if (dash && dashCd <= 0) { dashT = DashDur; dashCd = DashCd; evDash = true; skillUses++; }
-            if (slip && slipCd <= 0) { slipT = SlipDur; slipCd = SlipCd; evSlip = true; skillUses++; }
-            if (shove && shoveCd <= 0) { shoveCd = ShoveCd; shoveFx = 0.35f; DoShove(wish); evShove = true; skillUses++; }
+            if (dash && dashCd <= 0) { dashT = DashDur; dashCd = DashCd; evDash = true; skillUses++; dashN++; }
+            if (slip && slipCd <= 0) { slipT = SlipDur; slipCd = SlipCd; evSlip = true; skillUses++; slipN++; }
+            if (shove && shoveCd <= 0) { shoveCd = ShoveCd; shoveFx = 0.35f; DoShove(wish); evShove = true; skillUses++; shoveN++; }
 
             wish = Vector2.ClampMagnitude(wish, 1f);
             if (stagger > 0f) wish *= 0.3f;

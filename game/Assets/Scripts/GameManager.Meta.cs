@@ -42,6 +42,7 @@ namespace ShibuyaRush
             ghost.Begin(s.key); ghostHr = ghostHr ?? new HumanoidRenderer(new[] { M("GhostA") }, M("GhostA"), M("GhostA"));
             if (autoplay) { botPath = graph.Path(player.pos, goal, player.lift); botLift = new List<float>(graph.lastPathLift); botIdx = 0; nextReplan = Time.unscaledTime + 1.5f; Debug.Log($"[Bot] route nodes={botPath.Count} dest={goalName} len={s.pathLen:F0} limit={s.limit:F0} coins={pickups.CoinsTotal}"); if (shotDir != null) System.IO.Directory.CreateDirectory(shotDir); }
             Cursor.lockState = CursorLockMode.None; Store.D.plays++;
+            if (s.tutorial) TutBegin();
         }
 
         /// <summary>レベル生成の確認: 経路ができ、道のり・制限時間・星の基準が筋の通った値か。</summary>
@@ -192,7 +193,7 @@ namespace ShibuyaRush
             var d = Store.D; res = new ResultInfo { mult = 1f };
             res.stars = raceT <= par3 ? 3 : raceT <= par2 ? 2 : 1; starsEarned = res.stars;
             res.collected = runCoins * (spec.mod == 1 ? 2 : 1);
-            res.baseReward = spec.free ? 10 : spec.BaseReward + res.stars * 15;
+            res.baseReward = spec.tutorial ? 60 : spec.free ? 10 : spec.BaseReward + res.stars * 15;
             res.noHitRun = hits == 0; res.noHit = res.noHitRun ? 20 : 0;
             res.allCoins = pickups.CoinsTotal >= 8 && runCoinCount >= pickups.CoinsTotal ? 30 : 0;
             res.comboBonus = Mathf.Min(60, runMaxCombo);
@@ -205,6 +206,7 @@ namespace ShibuyaRush
                 float prevBest = Store.BestTime(spec.key); res.hadBest = prevBest < 9000f; res.diff = raceT - prevBest;
                 res.newBest = Store.SetBest(spec.key, raceT, res.stars);
                 if (res.newBest) { ghost.Save(spec.key); resultNote = "NEW BEST!"; }
+                if (spec.tutorial) d.tutorialDone = true;
                 d.coins += res.total; d.totalCoins += res.total; d.totalWins++; d.totalRuns++;
                 if (res.stars == 3) d.threeStars++;
                 if (res.noHitRun) d.noHitWins++;

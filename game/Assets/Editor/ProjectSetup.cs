@@ -196,6 +196,7 @@ public static class ProjectSetup
         if (wdev) PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.FullWithStacktrace;
         PlayerSettings.WebGL.memorySize = 512;
         PlayerSettings.stripEngineCode = true;
+        PlayerSettings.SplashScreen.show = false;   // Made with Unity のスプラッシュを出さない(Unity 6 は無料版でも可)
         var opts = new BuildPlayerOptions { scenes = new[] { "Assets/Scenes/Main.unity" }, locationPathName = "../Build/Web", target = BuildTarget.WebGL, options = (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-webdev") >= 0 ? BuildOptions.Development : BuildOptions.None) };
         var rep = BuildPipeline.BuildPlayer(opts);
         Debug.Log("BUILD_RESULT_WEB " + rep.summary.result + " size=" + rep.summary.totalSize);
